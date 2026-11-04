@@ -22,6 +22,8 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Fetch upstream release baselines
+        run: git fetch --tags --no-recurse-submodules https://github.com/dam-agents/dam.git
       - uses: ./.github/actions/setup-mise # zizmor: ignore[self-repository]
       - run: |
           mise run --continue-on-error check ::: test

@@ -100,6 +100,9 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Fetch upstream release baselines
+        if: github.repository == 'apocohq/dam'
+        run: git fetch --tags --no-recurse-submodules https://github.com/dam-agents/dam.git
       # The caches restore before setup-mise: its cold install of the go:
       # tools fills ~/go/pkg/mod with read-only files the go cache's tar then
       # cannot overwrite, and that restore fails.
@@ -200,6 +203,9 @@ jobs:
           TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
         run: |
           if [ "$TAG" = true ]; then mise run --jobs "$(nproc)" check; else mise run --jobs "$(nproc)" --continue-on-error check ::: test; fi
+      - name: Check Brainio's deployed CRD baseline
+        if: github.repository == 'apocohq/dam'
+        run: mise run //packages/controller:check:crd-backwards-compatibility -- --baseline 1e26131e99c5
       # platform-init's tests that need root (loop-mounted btrfs and ext4),
       # which the sandboxed, cached `test` cannot run. Only when the Rust cache
       # was needed: otherwise `test` replays, and this step alone would fill

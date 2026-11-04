@@ -13,8 +13,11 @@ The workflow reuses DAM's build and check tasks, publishes compiled DAM componen
 The chart and its starter kits use the Apoco namespace for DAM components and retain upstream's public third-party dependency images.
 The publisher verifies those dependencies exist and records their digests in the release manifest.
 Trusted manual builds on `apoco` save build caches; pull-request checks cannot write those caches.
+Checks fetch upstream release tags for the existing CRD compatibility gate, and candidates also compare CRDs against Brainio's deployed build.
 There is no npm CLI publication and no automatic production deployment.
-Registry packages must allow public pulls before a test installation can consume a candidate.
+The source fork is public and its compiled images and chart remain private.
+GitHub Actions uses its repository token; installations use a dedicated read-only registry credential provisioned through AWS secret management.
+Flux, platform pods and the VM image pullers all need that credential before an installation can consume a candidate.
 Use the repository-scoped Actions token to publish; do not create a registry password or give this workflow AWS credentials.
 
 Choose a new chart version such as `0.2.25-apoco.1`, matching the upstream base version.
