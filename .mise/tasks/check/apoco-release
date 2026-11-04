@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #MISE description="Prove Apoco publishing rejects incomplete or existing releases without modifying the source chart"
-#MISE sources=[".mise/tasks/release/apoco", ".mise/tasks/image/pin-tags", ".mise/tasks/image/resolve", "helm/values.yaml", "helm/starter-kits/**", ".mise/tasks/check/apoco-release"]
+#MISE sources=[".mise/tasks/release/apoco", ".mise/tasks/image/pin-tags", ".mise/tasks/image/resolve", ".mise/tasks/image/mirror", "helm/values.yaml", "helm/starter-kits/**", ".mise/tasks/check/apoco-release"]
 #MISE deny_net=true
 set -euo pipefail
 root="$MISE_CONFIG_ROOT"
@@ -9,7 +9,7 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/bin" "$work/.mise/tasks/image"
 cp -R "$root/helm" "$work/helm"
-cp "$root/.mise/tasks/image/"{resolve,pin-tags} "$work/.mise/tasks/image/"
+cp "$root/.mise/tasks/image/"{resolve,pin-tags,mirror} "$work/.mise/tasks/image/"
 cat > "$work/bin/crane" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -35,7 +35,9 @@ set -euo pipefail
 case "$1" in
   repo|dependency) ;;
   package)
-    ! grep -q 'quay.io/dam-agents/' "$2/values.yaml"
+    grep -q 'repository: ghcr.io/apocohq/dam/api-server' "$2/values.yaml"
+    grep -q 'repository: quay.io/dam-agents/clickhouse-server' "$2/values.yaml"
+    ! grep -q 'repository: ghcr.io/apocohq/dam/clickhouse-server' "$2/values.yaml"
     ! grep -R -q '@ci-pin .*image-' "$2/values.yaml" "$2/starter-kits"
     grep -R -q 'ref: ghcr.io/apocohq/dam/' "$2/starter-kits"
     touch dist/apoco-release/platform-test.tgz ;;
@@ -61,7 +63,10 @@ done
 if GITHUB_REPOSITORY=dam-agents/dam "$root/.mise/tasks/release/apoco" "$version" > case.log 2>&1; then
   echo 'Apoco publishing accepted the upstream repository' >&2; exit 1
 fi
-"$root/.mise/tasks/release/apoco" "$version" > case.log 2>&1
+if ! "$root/.mise/tasks/release/apoco" "$version" > case.log 2>&1; then
+  cat case.log >&2
+  exit 1
+fi
 [ -f pushed ]
 jq -e --arg version "$version" '.version == $version and .commit == "feature-sha" and (.images | has("default") and has("api-server") and has("ui"))' dist/apoco-release/release.json > /dev/null
 [ "$before" = "$(git hash-object helm/values.yaml)" ]

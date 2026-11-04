@@ -46,7 +46,8 @@ jobs:
       queue: false
       fresh: false
       main-push: false
-      release: true
+      release: false
+      save-caches: true
 
   e2e:
     needs: build
@@ -83,7 +84,7 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/setup-mise # zizmor: ignore[self-repository]
         with:
-          install_args: helm crane jq
+          install_args: helm crane jq yq
       - name: Authenticate Helm
         env:
           REGISTRY_USER: ${{ github.actor }}

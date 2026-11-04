@@ -26,7 +26,8 @@ fi
 
 mkdir -p dist/apoco-release
 images='{}'
-for component in $(.mise/tasks/image/resolve list-components); do
+components="$(.mise/tasks/image/resolve list-components)"
+for component in $components; do
   source="$(jq -er --arg c "$component" '.[$c]' <<< "$SOURCE_SHAS")"
   tag="$source"
   case "$component" in controller|ui|api-server) tag="$COMPOSITE" ;; esac
@@ -37,18 +38,25 @@ done
 
 cp -R helm "$chart"
 while IFS= read -r file; do
-  sed "s|quay.io/dam-agents/|$IMAGE_PREFIX/|g" "$file" > "$work/rewritten"
-  mv "$work/rewritten" "$file"
+  for component in $components; do
+    sed -E "s#quay.io/dam-agents/$component([:@\"'[:space:]]|$)#$IMAGE_PREFIX/$component\\1#g" "$file" > "$work/rewritten"
+    mv "$work/rewritten" "$file"
+  done
 done < <(find "$chart" -name '*.yaml')
 .mise/tasks/image/pin-tags "$SOURCE_SHAS" "$chart/values.yaml"
+dependencies='{}'
+for image in $(IMAGE_PREFIX=quay.io/dam-agents .mise/tasks/image/resolve list-third-party); do
+  digest="$(crane digest "$image")"
+  dependencies="$(jq -c --arg ref "$image" --arg digest "$digest" '. + {($ref): $digest}' <<< "$dependencies")"
+done
 helm repo add clickstack https://clickhouse.github.io/ClickStack-helm-charts
 helm dependency build "$chart"
 helm package "$chart" --version "$version" --app-version "$COMPOSITE" --destination dist/apoco-release
 helm push "dist/apoco-release/platform-$version.tgz" "oci://$IMAGE_PREFIX/charts"
 chart_digest="$(crane digest "$ref")"
 jq -n --arg version "$version" --arg commit "$GITHUB_SHA" --arg chart "oci://$IMAGE_PREFIX/charts/platform" \
-  --arg digest "$chart_digest" --arg composite "$COMPOSITE" --argjson images "$images" \
-  '{version: $version, commit: $commit, chart: $chart, digest: $digest, appVersion: $composite, images: $images}' \
+  --arg digest "$chart_digest" --arg composite "$COMPOSITE" --argjson images "$images" --argjson dependencies "$dependencies" \
+  '{version: $version, commit: $commit, chart: $chart, digest: $digest, appVersion: $composite, images: $images, dependencies: $dependencies}' \
   > dist/apoco-release/release.json
 cat dist/apoco-release/release.json
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then

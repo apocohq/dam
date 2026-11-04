@@ -9,8 +9,10 @@ The subscription feature has its own draft upstream pull request until live acco
 
 The upstream CI/CD entry point is restricted to the upstream repository.
 Apoco publishes only through the manually dispatched **Apoco candidate** workflow, from `apoco`.
-The workflow reuses DAM's build and check tasks, publishes all component and mirrored images to `ghcr.io/apocohq/dam`, and publishes the chart only after the complete build and both end-to-end gateway lanes succeed.
-The chart and its starter kits use the Apoco image namespace.
+The workflow reuses DAM's build and check tasks, publishes compiled DAM components to `ghcr.io/apocohq/dam`, and publishes the chart only after the complete build and both end-to-end gateway lanes succeed.
+The chart and its starter kits use the Apoco namespace for DAM components and retain upstream's public third-party dependency images.
+The publisher verifies those dependencies exist and records their digests in the release manifest.
+Trusted manual builds on `apoco` save build caches; pull-request checks cannot write those caches.
 There is no npm CLI publication and no automatic production deployment.
 Registry packages must allow public pulls before a test installation can consume a candidate.
 Use the repository-scoped Actions token to publish; do not create a registry password or give this workflow AWS credentials.

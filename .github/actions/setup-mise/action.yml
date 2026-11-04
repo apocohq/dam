@@ -100,7 +100,7 @@ runs:
         REGISTRY_USER: ${{ github.actor }}
         REGISTRY_TOKEN: ${{ github.token }}
       run: printf '%s' "$REGISTRY_TOKEN" | crane auth login ghcr.io --username "$REGISTRY_USER" --password-stdin
-    - if: inputs.install_args == '' && github.ref == 'refs/heads/main' && steps.maven-cache.outputs.cache-hit != 'true'
+    - if: inputs.install_args == '' && (github.ref == 'refs/heads/main' || env.SAVE_BUILD_CACHES == 'true') && steps.maven-cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: |

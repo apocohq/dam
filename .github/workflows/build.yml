@@ -19,6 +19,10 @@ name: Build
 on:
   workflow_call:
     inputs:
+      save-caches:
+        description: Save build caches on the trusted Apoco integration branch.
+        type: boolean
+        default: false
       image-prefix:
         description: Registry namespace for this distribution.
         type: string
@@ -72,6 +76,7 @@ permissions:
   packages: read
 
 env:
+  SAVE_BUILD_CACHES: ${{ inputs.main-push || (inputs.save-caches && github.repository == 'apocohq/dam' && github.ref == 'refs/heads/apoco' && !inputs.verify) }}
   IMAGE_PREFIX: ${{ inputs.image-prefix }}
   MISE_LOCKED: "1"
 
@@ -206,7 +211,7 @@ jobs:
       # key, and the next miss would compile from scratch. The task cache
       # otherwise keeps every artifact it ever held.
       - id: built
-        if: ${{ inputs.main-push }}
+        if: ${{ env.SAVE_BUILD_CACHES == 'true' }}
         run: |
           set -o pipefail
           newer() { [ -n "$(find "$1" -newer "$RUNNER_TEMP/check-start" -type f -print -quit 2>/dev/null)" ]; }
@@ -215,27 +220,27 @@ jobs:
           find . -type f -anewer "$RUNNER_TEMP/check-start" | sed 's|.*/||; s|\..*||' | sort -u > "$RUNNER_TEMP/used"
           find . -type f | while read -r f; do b="${f##*/}"; grep -qxF "${b%%.*}" "$RUNNER_TEMP/used" || rm -f "$f"; done
           du -sh .
-      - if: ${{ inputs.main-push }}
+      - if: ${{ env.SAVE_BUILD_CACHES == 'true' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: *task-artifacts
           key: *task-artifacts-key
-      - if: ${{ inputs.main-push && steps.go-cache.outputs.cache-hit != 'true' && steps.built.outputs.go == 'true' }}
+      - if: ${{ env.SAVE_BUILD_CACHES == 'true' && steps.go-cache.outputs.cache-hit != 'true' && steps.built.outputs.go == 'true' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: *go-paths
           key: *go-key
-      - if: ${{ inputs.main-push && steps.cargo-cache.outputs.cache-hit != 'true' && steps.rust-needed.outputs.needed == 'true' }}
+      - if: ${{ env.SAVE_BUILD_CACHES == 'true' && steps.cargo-cache.outputs.cache-hit != 'true' && steps.rust-needed.outputs.needed == 'true' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: *cargo-paths
           key: *cargo-key
-      - if: ${{ inputs.main-push && steps.pnpm-cache.outputs.cache-hit != 'true' }}
+      - if: ${{ env.SAVE_BUILD_CACHES == 'true' && steps.pnpm-cache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: *pnpm-store
           key: *pnpm-key
-      - if: ${{ inputs.main-push && steps.pnpm-verified.outputs.cache-hit != 'true' }}
+      - if: ${{ env.SAVE_BUILD_CACHES == 'true' && steps.pnpm-verified.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: *pnpm-verified
@@ -404,12 +409,12 @@ jobs:
           .mise/tasks/image/ci-build "$ARCH" "${images[@]}"
       # Main writes it on a miss, once the build has compiled into it; a PR's
       # e2e jobs (e2e.yml) read the amd64 one.
-      - if: ${{ inputs.main-push && steps.rust-release.outputs.cache-hit != 'true' && hashFiles('packages/vm-runner/target/release/vm-runner') != '' }}
+      - if: ${{ env.SAVE_BUILD_CACHES == 'true' && steps.rust-release.outputs.cache-hit != 'true' && hashFiles('packages/vm-runner/target/release/vm-runner') != '' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: *rust-release-paths
           key: *rust-release-key
-      - if: ${{ inputs.main-push && steps.vm-runner-deps.outputs.cache-hit != 'true' && hashFiles('packages/vm-runner/target/release/vm-runner') != '' }}
+      - if: ${{ env.SAVE_BUILD_CACHES == 'true' && steps.vm-runner-deps.outputs.cache-hit != 'true' && hashFiles('packages/vm-runner/target/release/vm-runner') != '' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: *vm-runner-deps-paths
@@ -417,7 +422,7 @@ jobs:
       # The keycloak theme build, for e2e on a PR. This job starts from an
       # empty task cache, so the entry holds this run's artifacts alone, and
       # only a run that built keycloak has any.
-      - if: ${{ matrix.arch == 'amd64' && inputs.main-push && contains(fromJSON(needs.changes.outputs.images), 'keycloak') }}
+      - if: ${{ matrix.arch == 'amd64' && env.SAVE_BUILD_CACHES == 'true' && contains(fromJSON(needs.changes.outputs.images), 'keycloak') }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: *task-artifacts
