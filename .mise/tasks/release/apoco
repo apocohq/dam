@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+#MISE description="Publish an immutable Apoco candidate after the complete image build succeeds"
+set -euo pipefail
+
+version="${1:?Apoco version required}"
+base="$(sed -n 's/^version: //p' helm/Chart.yaml)"
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-apoco\.[1-9][0-9]*$ && "$version" = "$base"-apoco.* ]]
+[ "${GITHUB_REPOSITORY:-}" = apocohq/dam ]
+[ "${GITHUB_REF:-}" = refs/heads/apoco ]
+[ "${IMAGE_PREFIX:-}" = ghcr.io/apocohq/dam ]
+: "${COMPOSITE:?}" "${SOURCE_SHAS:?}" "${GITHUB_SHA:?}"
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+chart="$work/chart"
+ref="$IMAGE_PREFIX/charts/platform:$version"
+if crane digest "$ref" > /dev/null 2>"$work/lookup-error"; then
+  echo "Refusing to replace existing chart $ref" >&2
+  exit 1
+fi
+if ! grep -Eq 'MANIFEST_UNKNOWN|NAME_UNKNOWN|404 Not Found' "$work/lookup-error"; then
+  cat "$work/lookup-error" >&2
+  echo 'Cannot prove the chart version is absent; refusing to publish.' >&2
+  exit 1
+fi
+
+mkdir -p dist/apoco-release
+images='{}'
+for component in $(.mise/tasks/image/resolve list-components); do
+  source="$(jq -er --arg c "$component" '.[$c]' <<< "$SOURCE_SHAS")"
+  tag="$source"
+  case "$component" in controller|ui|api-server) tag="$COMPOSITE" ;; esac
+  image="$IMAGE_PREFIX/$component:$tag"
+  digest="$(crane digest "$image")"
+  images="$(jq -c --arg c "$component" --arg ref "$IMAGE_PREFIX/$component@$digest" '. + {($c): $ref}' <<< "$images")"
+done
+
+cp -R helm "$chart"
+while IFS= read -r file; do
+  sed "s|quay.io/dam-agents/|$IMAGE_PREFIX/|g" "$file" > "$work/rewritten"
+  mv "$work/rewritten" "$file"
+done < <(find "$chart" -name '*.yaml')
+.mise/tasks/image/pin-tags "$SOURCE_SHAS" "$chart/values.yaml"
+helm repo add clickstack https://clickhouse.github.io/ClickStack-helm-charts
+helm dependency build "$chart"
+helm package "$chart" --version "$version" --app-version "$COMPOSITE" --destination dist/apoco-release
+helm push "dist/apoco-release/platform-$version.tgz" "oci://$IMAGE_PREFIX/charts"
+chart_digest="$(crane digest "$ref")"
+jq -n --arg version "$version" --arg commit "$GITHUB_SHA" --arg chart "oci://$IMAGE_PREFIX/charts/platform" \
+  --arg digest "$chart_digest" --arg composite "$COMPOSITE" --argjson images "$images" \
+  '{version: $version, commit: $commit, chart: $chart, digest: $digest, appVersion: $composite, images: $images}' \
+  > dist/apoco-release/release.json
+cat dist/apoco-release/release.json
+if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+  printf 'Candidate %s\n\nChart: %s\n\nDigest: %s\n\nSource: %s\n\nProduction deployment requires a separate Brainio change.\n' \
+    "$version" "oci://$IMAGE_PREFIX/charts/platform" "$chart_digest" "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+fi

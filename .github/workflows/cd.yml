@@ -41,8 +41,10 @@ concurrency:
 
 jobs:
   build:
+    if: github.repository == 'dam-agents/dam'
     permissions:
       contents: read
+      packages: write
       # security.yml's summary issues.
       issues: write
     uses: $/.github/workflows/build.yml
@@ -65,9 +67,10 @@ jobs:
   # A tag skips both jobs: it only publishes. A push to main runs them while
   # no merge queue runs them before the merge.
   e2e:
-    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    if: ${{ github.repository == 'dam-agents/dam' && !startsWith(github.ref, 'refs/tags/') }}
     permissions:
       contents: read
+      packages: read
       # e2e:ci-images reads this run's jobs and downloads its artifacts.
       actions: read
     uses: $/.github/workflows/e2e.yml
@@ -88,7 +91,7 @@ jobs:
     # Here, not in build.yml: npm's trusted publishing and provenance name
     # this file, so the CLI must publish from it.
     needs: [build]
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    if: ${{ github.repository == 'dam-agents/dam' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

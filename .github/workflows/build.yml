@@ -19,6 +19,10 @@ name: Build
 on:
   workflow_call:
     inputs:
+      image-prefix:
+        description: Registry namespace for this distribution.
+        type: string
+        default: quay.io/dam-agents
       verify:
         description: >-
           A PR or a merge group: build to prove it builds, and tag, publish
@@ -65,9 +69,10 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 env:
-  IMAGE_PREFIX: quay.io/dam-agents
+  IMAGE_PREFIX: ${{ inputs.image-prefix }}
   MISE_LOCKED: "1"
 
 jobs:
@@ -299,6 +304,9 @@ jobs:
           printf '::notice::%s\n' "$(printf '%s' "$out" | tr '\n' ' ')"
 
   build-images:
+    permissions:
+      contents: read
+      packages: write
     # One job per arch builds the stale ones of the five images side by side;
     # see image:ci-build. merge-images tags the rest. A PR builds its images in
     # e2e instead, so image:resolve lists none for this job: see
@@ -419,6 +427,9 @@ jobs:
           if-no-files-found: error
 
   merge-images:
+    permissions:
+      contents: read
+      packages: write
     name: merge multi-arch manifests
     needs: [changes, build-images, appversion, check-test]
     # build-images is skipped when every image is reused; then this job only
@@ -456,6 +467,9 @@ jobs:
         run: .mise/tasks/image/ci-merge "$RUNNER_TEMP/digests" controller vm-runner api-server ui keycloak
 
   build-agents:
+    permissions:
+      contents: read
+      packages: write
     # One job per arch builds the agents one after another; see
     # image:ci-build. merge-agents keeps the `check` gate on publishing.
     needs: [changes]
@@ -481,6 +495,9 @@ jobs:
           quay-password: ${{ secrets.QUAY_PASSWORD }}
 
   merge-agents:
+    permissions:
+      contents: read
+      packages: write
     name: merge multi-arch agent manifests
     needs: [build-agents, appversion, changes, check-test]
     if: ${{ !inputs.verify && needs.changes.outputs.agents != '[]' && !cancelled() && !failure() }}
@@ -500,6 +517,9 @@ jobs:
           quay-password: ${{ secrets.QUAY_PASSWORD }}
 
   build-workloads:
+    permissions:
+      contents: read
+      packages: write
     # One job per arch, one workload after another, like build-agents, and
     # beside it: each workload is packed onto the default image the job builds
     # itself, not onto a published one. Every workload builds even after one fails,
@@ -528,6 +548,9 @@ jobs:
           quay-password: ${{ secrets.QUAY_PASSWORD }}
 
   merge-workloads:
+    permissions:
+      contents: read
+      packages: write
     name: merge multi-arch workload manifests
     needs: [build-workloads, appversion, changes, check-test]
     if: ${{ !inputs.verify && needs.changes.outputs.workloads != '[]' && !cancelled() && !failure() }}
@@ -547,6 +570,9 @@ jobs:
           quay-password: ${{ secrets.QUAY_PASSWORD }}
 
   build-mock:
+    permissions:
+      contents: read
+      packages: write
     name: build mock (e2e fixture)
     needs: [changes]
     # On a PR, e2e builds the mock itself. Otherwise only a mock whose source
@@ -576,6 +602,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
+      packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

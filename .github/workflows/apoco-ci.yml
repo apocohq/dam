@@ -1,0 +1,42 @@
+name: Apoco checks
+
+on:
+  pull_request:
+    branches: [apoco]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apoco-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: mise check
+    if: github.repository == 'apocohq/dam'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-mise # zizmor: ignore[self-repository]
+      - run: |
+          mise run --continue-on-error check ::: test
+
+  e2e:
+    if: github.repository == 'apocohq/dam'
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    uses: $/.github/workflows/e2e.yml
+    with:
+      image-prefix: ghcr.io/apocohq/dam
+      verify: true
+      queue: false
+      fresh: false
+      save-caches: false
+      pr-scope: true

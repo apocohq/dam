@@ -1,0 +1,98 @@
+name: Apoco candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Immutable chart version, for example 0.2.25-apoco.1.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apoco-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.repository == 'apocohq/dam' && github.ref == 'refs/heads/apoco'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          base="$(sed -n 's/^version: //p' helm/Chart.yaml)"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-apoco\.[1-9][0-9]*$ ]]
+          [[ "$VERSION" = "$base"-apoco.* ]]
+
+  build:
+    needs: prepare
+    permissions:
+      contents: read
+      packages: write
+      issues: write
+    uses: $/.github/workflows/build.yml
+    with:
+      image-prefix: ghcr.io/apocohq/dam
+      verify: false
+      queue: false
+      fresh: false
+      main-push: false
+      release: true
+
+  e2e:
+    needs: build
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    uses: $/.github/workflows/e2e.yml
+    with:
+      image-prefix: ghcr.io/apocohq/dam
+      verify: false
+      queue: false
+      fresh: false
+      save-caches: false
+      pr-scope: false
+
+  publish:
+    needs: [build, e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE_PREFIX: ghcr.io/apocohq/dam
+      COMPOSITE: ${{ needs.build.outputs.composite }}
+      SOURCE_SHAS: ${{ needs.build.outputs.source_shas }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-mise # zizmor: ignore[self-repository]
+        with:
+          install_args: helm crane jq
+      - name: Authenticate Helm
+        env:
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: printf '%s' "$REGISTRY_TOKEN" | helm registry login ghcr.io --username "$REGISTRY_USER" --password-stdin
+      - name: Publish complete candidate
+        run: mise run --no-deps release:apoco -- "$VERSION"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: apoco-release-${{ inputs.version }}
+          path: dist/apoco-release/
+          if-no-files-found: error
+          retention-days: 90

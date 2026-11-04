@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+#MISE description="Prove Apoco publishing rejects incomplete or existing releases without modifying the source chart"
+#MISE sources=[".mise/tasks/release/apoco", ".mise/tasks/image/pin-tags", ".mise/tasks/image/resolve", "helm/values.yaml", "helm/starter-kits/**", ".mise/tasks/check/apoco-release"]
+#MISE deny_net=true
+set -euo pipefail
+root="$MISE_CONFIG_ROOT"
+shellcheck "$root/.mise/tasks/release/apoco" "$root/.mise/tasks/check/apoco-release"
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+mkdir -p "$work/bin" "$work/.mise/tasks/image"
+cp -R "$root/helm" "$work/helm"
+cp "$root/.mise/tasks/image/"{resolve,pin-tags} "$work/.mise/tasks/image/"
+cat > "$work/bin/crane" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+[ "$1" = digest ] || exit 99
+case "$2" in
+  */charts/platform:*)
+    if [ -f pushed ] || [ "${APOCO_TEST_FAULT:-}" = existing ]; then
+      printf 'sha256:%064d\n' 1
+    elif [ "${APOCO_TEST_FAULT:-}" = auth ]; then
+      echo UNAUTHORIZED >&2; exit 1
+    else
+      echo MANIFEST_UNKNOWN >&2; exit 1
+    fi ;;
+  */api-server:*)
+    [ "${APOCO_TEST_FAULT:-}" != missing-image ] || { echo MANIFEST_UNKNOWN >&2; exit 1; }
+    printf 'sha256:%064d\n' 2 ;;
+  *) printf 'sha256:%064d\n' 2 ;;
+esac
+SH
+cat > "$work/bin/helm" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+case "$1" in
+  repo|dependency) ;;
+  package)
+    ! grep -q 'quay.io/dam-agents/' "$2/values.yaml"
+    ! grep -R -q '@ci-pin .*image-' "$2/values.yaml" "$2/starter-kits"
+    grep -R -q 'ref: ghcr.io/apocohq/dam/' "$2/starter-kits"
+    touch dist/apoco-release/platform-test.tgz ;;
+  push) touch pushed ;;
+  *) exit 99 ;;
+esac
+SH
+chmod +x "$work/bin/"*
+export PATH="$work/bin:$PATH" GITHUB_REPOSITORY=apocohq/dam GITHUB_REF=refs/heads/apoco
+export IMAGE_PREFIX=ghcr.io/apocohq/dam GITHUB_SHA=feature-sha COMPOSITE=0.2.25-dev-feature
+cd "$work"
+SOURCE_SHAS="$(for c in $(.mise/tasks/image/resolve list-components); do printf '%s\n' "$c"; done | jq -Rsc 'split("\n") | map(select(length > 0) | {key: ., value: "source-sha"}) | from_entries')"
+export SOURCE_SHAS
+base="$(sed -n 's/^version: //p' helm/Chart.yaml)"
+version="$base-apoco.1"
+before="$(git hash-object helm/values.yaml)"
+for fault in auth existing missing-image; do
+  if APOCO_TEST_FAULT="$fault" "$root/.mise/tasks/release/apoco" "$version" > case.log 2>&1; then
+    echo "Apoco publishing accepted $fault" >&2; exit 1
+  fi
+  [ ! -f pushed ]
+done
+if GITHUB_REPOSITORY=dam-agents/dam "$root/.mise/tasks/release/apoco" "$version" > case.log 2>&1; then
+  echo 'Apoco publishing accepted the upstream repository' >&2; exit 1
+fi
+"$root/.mise/tasks/release/apoco" "$version" > case.log 2>&1
+[ -f pushed ]
+jq -e --arg version "$version" '.version == $version and .commit == "feature-sha" and (.images | has("default") and has("api-server") and has("ui"))' dist/apoco-release/release.json > /dev/null
+[ "$before" = "$(git hash-object helm/values.yaml)" ]
+echo 'Apoco release: complete candidate recorded; incomplete, existing and unauthorized releases rejected; source chart unchanged.'

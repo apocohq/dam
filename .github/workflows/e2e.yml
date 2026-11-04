@@ -16,6 +16,10 @@ name: E2E
 on:
   workflow_call:
     inputs:
+      image-prefix:
+        description: Registry namespace of the candidate under test.
+        type: string
+        default: quay.io/dam-agents
       verify:
         description: >-
           A PR or a merge group: build the images here, and save nothing.
@@ -55,7 +59,7 @@ permissions:
   contents: read
 
 env:
-  IMAGE_PREFIX: quay.io/dam-agents
+  IMAGE_PREFIX: ${{ inputs.image-prefix }}
   MISE_LOCKED: "1"
   # What a verifying run's change detection diffs against. A PR's checkout is
   # its merge commit, whose first parent is the base; in a merge group that
@@ -116,6 +120,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      packages: read
     env:
       IS_SANDBOX: "1"
       # A pull request runs the specs that fail for real on one; the merge
@@ -511,6 +516,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      packages: read
     env:
       IS_SANDBOX: "1"
       E2E_GATEWAY_PER_OWNER: "1"
