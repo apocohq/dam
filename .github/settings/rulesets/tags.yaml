@@ -12,4 +12,6 @@ rules:
   - type: non_fast_forward
   - type: creation
   - type: update
+    parameters:
+      update_allows_fetch_and_merge: false
 target: tag
