@@ -1,23 +1,11 @@
-bypass_actors:
-  - actor_id: null
-    actor_type: OrganizationAdmin
-    bypass_mode: always
-  - actor_id: 5
-    actor_type: RepositoryRole
-    bypass_mode: always
-  # Mergify's GitHub App. `exempt` is the one mode that covers its queue
-  # branches and its merges; it still enforces this ruleset's approval and
-  # required checks as queue conditions.
-  - actor_id: 10562
-    actor_type: Integration
-    bypass_mode: exempt
+bypass_actors: []
 conditions:
   ref_name:
     exclude: []
     include:
       - ~DEFAULT_BRANCH
 enforcement: active
-name: Main protection
+name: Apoco integration protection
 rules:
   - type: deletion
   - type: non_fast_forward
@@ -27,12 +15,8 @@ rules:
         - rebase
         - merge
       dismiss_stale_reviews_on_push: false
-      # Only the Developers team dismisses reviews, as the legacy branch
-      # protection had it.
       dismissal_restriction:
-        allowed_actors:
-          - id: 17367424
-            type: Team
+        allowed_actors: []
         enabled: true
       require_code_owner_review: false
       require_extra_approval_for_unattributed_changes: true
@@ -44,7 +28,9 @@ rules:
   - parameters:
       do_not_enforce_on_create: false
       required_status_checks:
-        - context: verify
+        - context: mise check
+          integration_id: 15368
+        - context: e2e / mise e2e (vm, per-agent gateway)
           integration_id: 15368
       strict_required_status_checks_policy: false
     type: required_status_checks

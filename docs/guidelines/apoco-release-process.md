@@ -4,6 +4,7 @@ The Apoco fork publishes tested candidates for Brainio's AWS installation while 
 Its `main` branch follows upstream; `apoco` is the integration branch and the repository's default branch.
 Feature branches start from upstream and contain no Apoco publishing changes.
 Pull requests into `apoco` run checks, unit tests and the reduced end-to-end suite with read-only permissions.
+Repository settings live in `.github/settings`: integration requires a pull request, one approval and passing checks, and the upstream mirror cannot be deleted or rewritten.
 The subscription feature has its own draft upstream pull request until live account testing passes.
 
 The upstream CI/CD entry point is restricted to the upstream repository.

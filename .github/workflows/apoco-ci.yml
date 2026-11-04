@@ -40,3 +40,4 @@ jobs:
       fresh: false
       save-caches: false
       pr-scope: true
+      full-tier: false
