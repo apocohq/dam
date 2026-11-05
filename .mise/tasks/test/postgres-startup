@@ -1,0 +1,155 @@
+#!/usr/bin/env node
+//MISE description="Prove the rendered Postgres probes wait for bootstrap to finish, using only a disposable local container and synthetic credentials"
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// TEST_OVERVIEW: the image starts a Unix-socket-only server to run init scripts. A probe that accepts it can enable liveness while initialization still runs. Hold that phase open, require every rendered probe to refuse it, then release it and require the same probes to accept the final server.
+const root = fileURLToPath(new URL("../../../", import.meta.url));
+const work = mkdtempSync(join(tmpdir(), "dam-postgres-startup-"));
+const name = `dam-postgres-startup-${process.pid}`;
+let cleaned = false;
+
+function run(binary, args) {
+  return spawnSync(binary, args, { encoding: "utf8", timeout: 120_000 });
+}
+
+function checked(binary, args) {
+  const result = run(binary, args);
+  assert.equal(
+    result.status,
+    0,
+    `${binary} failed: ${result.error?.message ?? result.stderr}`,
+  );
+  return result.stdout;
+}
+
+function cleanup() {
+  if (cleaned) return;
+  cleaned = true;
+  run("docker", ["rm", "-fv", name]);
+  rmSync(work, { recursive: true, force: true });
+}
+
+process.once("SIGINT", () => {
+  cleanup();
+  process.exit(130);
+});
+process.once("SIGTERM", () => {
+  cleanup();
+  process.exit(143);
+});
+
+async function until(check, message, timeout = 60_000) {
+  const deadline = Date.now() + timeout;
+  while (!check()) {
+    assert.ok(Date.now() < deadline, message);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
+try {
+  const chart = join(work, "chart");
+  mkdirSync(join(chart, "templates"), { recursive: true });
+  writeFileSync(
+    join(chart, "Chart.yaml"),
+    "apiVersion: v2\nname: platform\nversion: 0.0.0\nappVersion: test\n",
+  );
+  for (const file of ["postgres.yaml", "_helpers.tpl"]) {
+    copyFileSync(
+      join(root, "helm/templates", file),
+      join(chart, "templates", file),
+    );
+  }
+  const rendered = join(work, "rendered.yaml");
+  writeFileSync(
+    rendered,
+    checked("helm", [
+      "template",
+      "platform",
+      chart,
+      "--values",
+      join(root, "helm/values.yaml"),
+    ]),
+  );
+  const container = JSON.parse(
+    checked("yq", [
+      "-o=json",
+      'select(.kind == "StatefulSet") | .spec.template.spec.containers[0]',
+      rendered,
+    ]),
+  );
+  const probes = [
+    container.startupProbe,
+    container.readinessProbe,
+    container.livenessProbe,
+  ].map((probe) => probe.exec.command);
+  const init = join(work, "init");
+  mkdirSync(init);
+  const script = join(init, "90-block.sh");
+  writeFileSync(
+    script,
+    "#!/bin/sh\ntouch /tmp/init-blocked\nleft=300\nwhile [ ! -f /tmp/finish-init ]; do\n  [ $left -gt 0 ] || exit 1\n  left=$((left - 1))\n  sleep 1\ndone\n",
+  );
+  chmodSync(script, 0o755);
+  checked("docker", [
+    "run",
+    "--rm",
+    "-d",
+    "--name",
+    name,
+    "--platform",
+    "linux/amd64",
+    "--memory=512m",
+    "--tmpfs",
+    "/var/lib/postgresql/data",
+    "-e",
+    "POSTGRES_USER=platform_apiserver",
+    "-e",
+    "POSTGRES_PASSWORD=fixture",
+    "-e",
+    "PGDATA=/var/lib/postgresql/data/pgdata",
+    "-v",
+    `${init}:/docker-entrypoint-initdb.d:ro`,
+    container.image,
+    "postgres",
+    "-c",
+    "logging_collector=off",
+  ]);
+  await until(
+    () =>
+      run("docker", ["exec", name, "test", "-f", "/tmp/init-blocked"])
+        .status === 0,
+    "The disposable image never entered its controlled bootstrap script.",
+  );
+  for (const probe of probes) {
+    assert.notEqual(
+      run("docker", ["exec", name, ...probe]).status,
+      0,
+      "A rendered probe reports ready while the bootstrap server is still running.",
+    );
+  }
+  checked("docker", ["exec", name, "touch", "/tmp/finish-init"]);
+  await until(
+    () =>
+      probes.every(
+        (probe) => run("docker", ["exec", name, ...probe]).status === 0,
+      ),
+    "The rendered probes never accepted the final server.",
+  );
+  console.log(
+    "All rendered Postgres probes wait through bootstrap and accept the final server.",
+  );
+} finally {
+  cleanup();
+}

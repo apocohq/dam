@@ -289,7 +289,7 @@ spec:
             - name: PGDATA
               value: /var/lib/postgresql/data/pgdata
           {{- if .Values.probes.enabled }}
-          # Each start, until Postgres first answers — initdb on a first boot,
+          # Each start, until Postgres answers on TCP — initdb on a first boot,
           # recovery after a kill — holds off both checks below. A liveness
           # check that fires before that answer kills Postgres mid-write, and
           # the recovery the kill leaves is longer than liveness waits.
@@ -297,6 +297,8 @@ spec:
             exec:
               command:
                 - pg_isready
+                - -h
+                - 127.0.0.1
                 - -U
                 - {{ .Values.postgres.apiserverUser }}
                 - -d
@@ -310,6 +312,8 @@ spec:
             exec:
               command:
                 - pg_isready
+                - -h
+                - 127.0.0.1
                 - -U
                 - {{ .Values.postgres.apiserverUser }}
                 # Target an existing database so the probe does not log
@@ -327,6 +331,8 @@ spec:
             exec:
               command:
                 - pg_isready
+                - -h
+                - 127.0.0.1
                 - -U
                 - {{ .Values.postgres.apiserverUser }}
                 - -d
