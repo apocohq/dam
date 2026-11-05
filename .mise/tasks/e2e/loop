@@ -19,13 +19,11 @@ if [ "${usage_headed:-}" = true ]; then
   PLAYWRIGHT_ARGS+=(--headed)
 fi
 [ "${usage_full:-}" != true ] || export E2E_FULL=1
-# --test fully narrows the run only for full-only projects, which have no
-# dependencies — e.g. --full --test=prompt-delivery runs just the four
-# prompt-delivery specs. A smoke spec still pulls in its whole dependency
-# chain: Playwright always runs a selected project's dependencies, and here
-# they're needed anyway because e2e:reset (step 3) wipes the state the chain
-# builds up. Full-only specs also need --full, or their project doesn't exist
-# and the filter matches nothing.
+# --test selects matching specs and also runs their projects' dependencies.
+# Full-only projects wait for the smoke setup and the earlier full projects,
+# since they share the user, mock agents and controller that e2e:reset wipes.
+# Full-only specs also need --full, or their project doesn't exist and the
+# filter matches nothing.
 [ -z "${usage_test:-}" ] || PLAYWRIGHT_ARGS+=("$usage_test")
 REBUILD="${usage_rebuild:-}"
 

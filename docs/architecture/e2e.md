@@ -48,6 +48,9 @@ It skips on a Mac host runner, where the first case measures no machine's disk.
 The case beside it fills the claim itself with real bytes to read the ceiling, and spends `E2E_DISK_FILL_GIB` of the host to do it, so it skips when the claim would need more than that or the variable is unset.
 The spec that deletes a user's VM runner runs after the rest of the suite, since that runner runs every other machine of that user.
 The tier under `src/tests/full/` is slow scenario specs: a local run asks for it with `--full`, and in CI only the nightly run takes it.
+Full projects start after every smoke project finishes, then run in sequence with one worker each.
+They share the smoke user's terms acceptance, mock agents and controller, so overlapping a project that changes those fixtures can invalidate another project's assertions.
+`check:project-order` checks those dependencies without starting a cluster.
 
 ## Scope: what a pull request runs
 
