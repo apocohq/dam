@@ -57,8 +57,7 @@ test("invocation egress follows the driver (#2930)", async () => {
     const { id } = await api.e2e.spawnInvocation.mutate({
       agentId: driverId,
       harness: harnessName,
-      prompt: "e2e invocation target; stay idle",
-      schema: { type: "object" },
+      script: "sleep 1800",
       ttlMs: 30 * 60_000,
     });
     targetId = id;
