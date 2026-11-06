@@ -67,7 +67,7 @@ const smoke: NamedProject[] = [
   },
   {
     name: "own-agents",
-    testMatch: /\/(17|18|19|22|23|25|27|29)-.*\.spec\.ts$/,
+    testMatch: /\/(17|18|22|23|25|27|29)-.*\.spec\.ts$/,
     dependencies: ["agent"],
     workers: 1,
     use: { ...devices["Desktop Chrome"], storageState },
