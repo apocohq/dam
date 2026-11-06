@@ -48,6 +48,9 @@ It skips on a Mac host runner, where the first case measures no machine's disk.
 The case beside it fills the claim itself with real bytes to read the ceiling, and spends `E2E_DISK_FILL_GIB` of the host to do it, so it skips when the claim would need more than that or the variable is unset.
 The spec that deletes a user's VM runner runs after the rest of the suite, since that runner runs every other machine of that user.
 The tier under `src/tests/full/` is slow scenario specs: a local run asks for it with `--full`, and in CI only the nightly run takes it.
+Full projects start after every smoke project finishes, then run in sequence with one worker each.
+They share the smoke user's terms acceptance, mock agents and controller, so overlapping a project that changes those fixtures can invalidate another project's assertions.
+`check:project-order` checks those dependencies without starting a cluster.
 
 ## Scope: what a pull request runs
 
@@ -67,6 +70,15 @@ The two summaries hold the same table, so a phase of one lane compares with the 
 The merge queue is Mergify's.
 It tests each queued pull request on top of `main` and the pull requests queued ahead of it, as a draft pull request from a `mergify/merge-queue/*` branch, so its run is a `pull_request` run.
 `cd.yml` tells that run from a pull request's own run by the branch name, and gives it the merge queue's scope: both lanes, every spec, and the `verify-queue` check the queue merges on.
+
+## CI container signals
+
+The GitHub Actions lanes preload `etc/apparmor/cri-containerd.apparmor.d` before k3s starts.
+It renders the default profile from the pinned k3s containerd version, preserving its restrictions and adding signal delivery to the exact stacked peer `cri-containerd.apparmor.d//&unconfined`.
+Ubuntu 26.04 gives exec-spawned processes that label, which the upstream profile does not match ([containerd #12886](https://github.com/containerd/containerd/issues/12886)).
+The denial can leave Postgres recovery waiting for signals until its startup probe kills it.
+The copy is CI-only and is removed when the pinned runtime fixes the bug; a runtime upgrade must compare its template with this copy.
+After a successful background provision, `e2e:container-signals` requires enforced AppArmor and checks signal exchange between init and exec, self-signalling and termination of an exec process's own child on the disposable cluster.
 
 ## Running it
 

@@ -26,7 +26,9 @@ Existing chart versions cannot be replaced by the release task.
 The workflow artifact contains the chart and a release manifest with the source commit, chart digest, and image digests.
 A failed build publishes no chart; published intermediate image tags are not a deployment.
 
-Test the candidate in a separate installation, including upgrade compatibility, native device login, web chat, Slack, and API-provider regression checks.
+Run the release checks and rehearse the database migration before upgrading the installation chosen by the operator.
+Brainio's existing DAM is the integration target for subscription device login, web chat, Slack, and API-provider regression checks after rollout.
+Take a fresh database backup before its chart pin changes, and record the restore point with the deployment.
 AWS currently runs an older upstream development chart, so a successful fresh install alone does not verify its upgrade path.
 The production change belongs in Brainio: update its DAM OCI repository URL, chart version and digest through a pull request.
 Flux applies that reviewed change; never patch the running Deployments around Flux.

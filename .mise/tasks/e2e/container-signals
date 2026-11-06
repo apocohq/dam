@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+#MISE description="Check signal delivery under the CI cluster's enforced runtime AppArmor profile"
+#MISE hide=true
+set -euo pipefail
+
+[ "${GITHUB_ACTIONS:-}" = true ] && [ "${IS_SANDBOX:-}" = 1 ] ||
+  { echo 'This check targets only the disposable GitHub Actions k3s cluster.' >&2; exit 1; }
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+pod=platform-ci-container-signals
+cleanup() { kubectl -n default delete pod "$pod" --ignore-not-found --wait=false >/dev/null; }
+trap cleanup EXIT
+image=$(yq -r '.clickstack.hyperdx.deployment.waitForMongodb.image' "$MISE_CONFIG_ROOT/helm/values.yaml")
+# shellcheck disable=SC2016 # Expanded by the container shell.
+kubectl -n default run "$pod" --restart=Never --image="$image" --override-type=strategic --overrides='{
+  "spec": {
+    "activeDeadlineSeconds": 120,
+    "automountServiceAccountToken": false,
+    "containers": [{
+      "name": "platform-ci-container-signals",
+      "securityContext": {
+        "allowPrivilegeEscalation": false,
+        "capabilities": {"drop": ["ALL"]},
+        "appArmorProfile": {"type": "RuntimeDefault"},
+        "seccompProfile": {"type": "RuntimeDefault"}
+      },
+      "resources": {"requests": {"cpu": "10m", "memory": "8Mi"}, "limits": {"cpu": "100m", "memory": "32Mi"}}
+    }]
+  }
+}' --command -- sh -ec '
+  trap '\''kill -USR2 "$(cat /tmp/exec-pid)"'\'' USR1
+  trap "exit 0" TERM INT
+  while :; do sleep 1 & wait "$!" || true; done
+'
+kubectl -n default wait --for=condition=Ready "pod/$pod" --timeout=90s
+# shellcheck disable=SC2016 # Expanded by the container shell.
+kubectl -n default exec "$pod" -- sh -ec '
+  for process in 1 self; do
+    label=$(cat "/proc/$process/attr/current")
+    case "$label" in
+      "cri-containerd.apparmor.d (enforce)"|"cri-containerd.apparmor.d//&unconfined (enforce)") ;;
+      *) echo "Unexpected AppArmor confinement: $label" >&2; exit 1 ;;
+    esac
+    echo "$process: $label"
+  done
+  received=0
+  trap "received=1" USR2
+  echo "$$" > /tmp/exec-pid
+  kill -USR1 1
+  for _ in 1 2 3 4 5; do
+    [ "$received" = 1 ] && break
+    sleep 1
+  done
+  [ "$received" = 1 ]
+  received=0
+  trap "received=1" USR1
+  kill -USR1 "$$"
+  [ "$received" = 1 ]
+  sleep 60 &
+  child=$!
+  kill -TERM "$child"
+  status=0
+  wait "$child" || status=$?
+  [ "$status" = 143 ]
+  echo "Container init and exec can exchange signals; exec can signal itself and terminate its child under AppArmor."
+'
