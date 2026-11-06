@@ -22,12 +22,19 @@ The publisher verifies those dependencies exist and records their digests in the
 Trusted manual builds on `apoco` save build caches; pull-request checks cannot write those caches.
 Checks fetch upstream release tags for the existing CRD compatibility gate, and candidates also compare CRDs against Brainio's deployed build.
 There is no npm CLI publication and no automatic production deployment.
-The source fork and Helm chart are public; compiled executable images remain private.
-After the first chart publication, set only the `dam/charts/platform` package to public in GitHub Packages.
-Keep the compiled component packages private so AWS still authenticates their pulls.
-GitHub Actions uses its repository token; installations use a dedicated read-only registry credential provisioned through AWS secret management.
-Platform pods and VM image pullers need that credential before an installation can consume a candidate.
-The public chart lets CI and local stacks render the same pinned version without registry credentials.
+The source fork is public; the Helm chart and compiled executable images remain private.
+Keep all `dam/*` packages private in GitHub Packages.
+Before promotion, check each package's private visibility and verify that anonymous pulls fail.
+The fork's publishing workflow uses its repository token; installations use a dedicated read-only registry credential provisioned through AWS secret management.
+Flux, platform pods and VM image pullers need that credential before an installation can consume a candidate.
+The credential must read the chart package and the executable image packages.
+CI and local stacks must also authenticate to render the pinned private chart.
+Give consuming CI a read-only pull credential through its secret store, or grant its repository token read access to the chart package.
+The repository-token option requires a package Actions access grant for that repository and workflow permission `packages: read`.
+Use a separate temporary `HELM_REGISTRY_CONFIG` for each pull, restrict it to its owner, and remove it afterward.
+Pass registry passwords on stdin and never print them.
+Developers use their own Helm registry login with a classic `read:packages` token and access to the package.
+Authorize the token for organization SSO when required.
 Use the repository-scoped Actions token to publish; do not create a registry password or give this workflow AWS credentials.
 
 Choose a new chart version such as `0.3.0-apoco.1`, matching the upstream base version.
