@@ -8,7 +8,6 @@ import {
   agentConditionStatus,
   deleteAgentRow,
   kubectl,
-  podEvents,
   podField,
   podIsReady,
   scaleController,
@@ -17,7 +16,7 @@ import {
 import { harnessName } from "../../lib/fixtures.js";
 
 const agentName = "e2e-gateway-wedge";
-const deadSecret = "platform-conn-deleted";
+const credentialVolumePrefix = "cred-";
 
 test("a gateway wedged on a deleted credential Secret heals itself (#2817)", async () => {
   test.setTimeout(900_000);
@@ -28,6 +27,8 @@ test("a gateway wedged on a deleted credential Secret heals itself (#2817)", asy
 
   let agentId = "";
   let wedgedRev = "";
+  let connectionId = "";
+  let deadSecret = "";
   try {
     await test.step("create an agent with a healthy gateway", async () => {
       const created = await api.agents.create.mutate({
@@ -47,36 +48,88 @@ test("a gateway wedged on a deleted credential Secret heals itself (#2817)", asy
       })
       .toBe(true);
 
-    await test.step("wedge the gateway on a Secret that does not exist", async () => {
+    await test.step("grant a credential that the gateway mounts", async () => {
+      const before = statefulSetField(
+        gw,
+        ".spec.template.spec.volumes[*].name",
+      ).split(/\s+/);
+      const created = await api.connections.create.mutate({
+        templateId: "custom-header",
+        name: "e2e-gateway-wedge-credential",
+        authKind: "header",
+        host: "wedge.example.com",
+        headerName: "x-e2e-gateway-wedge",
+        valueFormat: "{value}",
+        value: "e2e-gateway-wedge-fixture",
+        envName: "E2E_GATEWAY_WEDGE",
+      });
+      connectionId = created.id;
+      const current = await api.connections.getAgentConnections.query({
+        agentId,
+      });
+      await api.connections.setAgentConnections.mutate({
+        agentId,
+        connectionIds: [
+          ...current.connections.map((connection) => connection.connectionId),
+          connectionId,
+        ],
+      });
+      const addedCredentialVolumes = () =>
+        statefulSetField(gw, ".spec.template.spec.volumes[*].name")
+          .split(/\s+/)
+          .filter(
+            (name) =>
+              name.startsWith(credentialVolumePrefix) && !before.includes(name),
+          );
+      await expect
+        .poll(addedCredentialVolumes, { timeout: 120_000, intervals: [2_000] })
+        .toHaveLength(1);
+      deadSecret =
+        addedCredentialVolumes()[0]?.slice(credentialVolumePrefix.length) ?? "";
+      expect(deadSecret).not.toBe("");
+      await expect
+        .poll(() => podField(`${gw}-0`, ".spec.volumes[*].secret.secretName"), {
+          timeout: 180_000,
+          intervals: [2_000],
+        })
+        .toContain(deadSecret);
+      await expect
+        .poll(() => podIsReady(`${gw}-0`), {
+          timeout: 180_000,
+          intervals: [2_000],
+        })
+        .toBe(true);
+    });
+
+    await test.step("revoke the credential while the controller is stopped", async () => {
       scaleController(0);
+      await api.connections.delete.mutate({ id: connectionId });
+      connectionId = "";
       kubectl(
         "-n",
         AGENT_NS,
-        "patch",
-        "sts",
-        gw,
-        "--type=json",
-        "-p",
-        JSON.stringify([
-          {
-            op: "add",
-            path: "/spec/template/spec/volumes/-",
-            value: {
-              name: `cred-${deadSecret}`,
-              secret: { secretName: deadSecret },
-            },
-          },
-          {
-            op: "add",
-            path: "/spec/template/spec/containers/0/volumeMounts/-",
-            value: {
-              name: `cred-${deadSecret}`,
-              mountPath: `/etc/envoy/credentials/cred-${deadSecret}`,
-              readOnly: true,
-            },
-          },
-        ]),
+        "delete",
+        "secret",
+        deadSecret,
+        "--ignore-not-found",
       );
+      await expect
+        .poll(
+          () =>
+            kubectl(
+              "-n",
+              AGENT_NS,
+              "get",
+              "secret",
+              deadSecret,
+              "--ignore-not-found",
+              "-o",
+              "name",
+            ),
+          { timeout: 60_000, intervals: [2_000] },
+        )
+        .toBe("");
+      kubectl("-n", AGENT_NS, "delete", "pod", `${gw}-0`, "--wait=false");
 
       await expect
         .poll(() => podField(`${gw}-0`, ".status.phase"), {
@@ -85,12 +138,28 @@ test("a gateway wedged on a deleted credential Secret heals itself (#2817)", asy
           message: "gateway pod never wedged on the missing Secret",
         })
         .toBe("Pending");
+      const wedgedPodUid = podField(`${gw}-0`, ".metadata.uid");
+      expect(wedgedPodUid).not.toBe("");
       await expect
-        .poll(() => podEvents(`${gw}-0`), {
-          timeout: 60_000,
-          intervals: [2_000],
-          message: "no FailedMount event on the wedged pod",
-        })
+        .poll(
+          () =>
+            kubectl(
+              "-n",
+              AGENT_NS,
+              "get",
+              "events",
+              "--field-selector",
+              `involvedObject.uid=${wedgedPodUid}`,
+              "-o",
+              "custom-columns=REASON:.reason",
+              "--no-headers",
+            ),
+          {
+            timeout: 60_000,
+            intervals: [2_000],
+            message: "no FailedMount event on the wedged pod",
+          },
+        )
         .toContain("FailedMount");
 
       wedgedRev = podField(
@@ -137,6 +206,11 @@ test("a gateway wedged on a deleted credential Secret heals itself (#2817)", asy
     try {
       scaleController(1);
     } catch {}
+    if (connectionId) {
+      try {
+        await api.connections.delete.mutate({ id: connectionId });
+      } catch {}
+    }
     if (agentId) {
       try {
         await api.agents.delete.mutate({ id: agentId });
