@@ -71,6 +71,15 @@ The merge queue is Mergify's.
 It tests each queued pull request on top of `main` and the pull requests queued ahead of it, as a draft pull request from a `mergify/merge-queue/*` branch, so its run is a `pull_request` run.
 `cd.yml` tells that run from a pull request's own run by the branch name, and gives it the merge queue's scope: both lanes, every spec, and the `verify-queue` check the queue merges on.
 
+## CI container signals
+
+The GitHub Actions lanes preload `etc/apparmor/cri-containerd.apparmor.d` before k3s starts.
+It renders the default profile from the pinned k3s containerd version, preserving its restrictions and adding signal delivery to the exact stacked peer `cri-containerd.apparmor.d//&unconfined`.
+Ubuntu 26.04 gives exec-spawned processes that label, which the upstream profile does not match ([containerd #12886](https://github.com/containerd/containerd/issues/12886)).
+The denial can leave Postgres recovery waiting for signals until its startup probe kills it.
+The copy is CI-only and is removed when the pinned runtime fixes the bug; a runtime upgrade must compare its template with this copy.
+After a successful background provision, `e2e:container-signals` requires enforced AppArmor and checks signal exchange between init and exec, self-signalling and termination of an exec process's own child on the disposable cluster.
+
 ## Running it
 
 `mise run e2e` is the CI path: a fresh cluster, the suite, teardown.

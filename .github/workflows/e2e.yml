@@ -169,6 +169,8 @@ jobs:
         name: Provision k3s in the background
         run: |
           sudo sysctl -w net.ipv6.conf.default.addr_gen_mode=1
+          grep -q 'INSTALL_K3S_VERSION="v1.37.1+k3s1"' etc/lima/k3s-test.yaml
+          sudo apparmor_parser -Kr etc/apparmor/cri-containerd.apparmor.d
           nohup bash -c ".mise/tasks/cluster/provision-host etc/lima/k3s-test.yaml; echo \$? > '$RUNNER_TEMP/k3s-provision.status'" \
             > "$RUNNER_TEMP/k3s-provision.log" 2>&1 &
       # The runner image carries toolchains this lane never uses: every tool the
@@ -415,6 +417,10 @@ jobs:
           else
             echo "E2E_HOST_PROVISIONED=1" >> "$GITHUB_ENV"
           fi
+      - &e2e-container-signals
+        name: Check container signal permissions
+        if: env.E2E_HOST_PROVISIONED == '1'
+        run: mise run e2e:container-signals
       # Just before the install, which imports the images whose import ran out
       # of disk: the delete above must be done, not just started, and its room
       # is what the import counts on. Five minutes is longer than the delete
@@ -603,6 +609,7 @@ jobs:
       - *e2e-playwright-version
       - *e2e-playwright-cache
       - *e2e-provision-wait
+      - *e2e-container-signals
       - *e2e-free-disk-wait
       - *e2e-suite
       - *e2e-playwright-save
