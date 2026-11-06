@@ -16,9 +16,12 @@ The publisher verifies those dependencies exist and records their digests in the
 Trusted manual builds on `apoco` save build caches; pull-request checks cannot write those caches.
 Checks fetch upstream release tags for the existing CRD compatibility gate, and candidates also compare CRDs against Brainio's deployed build.
 There is no npm CLI publication and no automatic production deployment.
-The source fork is public and its compiled images and chart remain private.
+The source fork and Helm chart are public; compiled executable images remain private.
+After the first chart publication, set only the `dam/charts/platform` package to public in GitHub Packages.
+Keep the compiled component packages private so AWS still authenticates their pulls.
 GitHub Actions uses its repository token; installations use a dedicated read-only registry credential provisioned through AWS secret management.
-Flux, platform pods and the VM image pullers all need that credential before an installation can consume a candidate.
+Platform pods and VM image pullers need that credential before an installation can consume a candidate.
+The public chart lets CI and local stacks render the same pinned version without registry credentials.
 Use the repository-scoped Actions token to publish; do not create a registry password or give this workflow AWS credentials.
 
 Choose a new chart version such as `0.2.25-apoco.1`, matching the upstream base version.
