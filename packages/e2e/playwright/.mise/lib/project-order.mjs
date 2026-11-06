@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-// TEST_OVERVIEW: full scenarios share the smoke suite's user, agents and controller. They start after smoke setup completes, run one file at a time, and cannot overlap another full project that changes that shared state.
+// TEST_OVERVIEW: full scenarios share the smoke suite's user, agents and controller. They run without overlapping shared mutations. Machine restart scenarios belong only to the final machine project, after the other scenarios finish.
 process.env.E2E_FULL = "1";
 process.env.E2E_SCOPE = "";
 const { default: config } = await import("../../playwright.config.ts");
@@ -55,6 +55,27 @@ for (const name of full) {
     );
   }
 }
+const machineSpec = "/src/tests/smoke/19-agent-machine.spec.ts";
+const machineProjects = projects
+  .filter((project) =>
+    [project.testMatch]
+      .flat()
+      .some((match) => match instanceof RegExp && match.test(machineSpec)),
+  )
+  .map((project) => project.name);
+assert.deepEqual(
+  machineProjects,
+  ["agent-machine"],
+  "machine restart scenarios must run once, after shared fixtures are finished",
+);
+const beforeMachines = ancestors("agent-machine");
+for (const name of [...smoke, ...full]) {
+  assert.ok(beforeMachines.has(name), `machine restarts may overlap ${name}`);
+}
+assert.ok(
+  ancestors("runner-release").has("agent-machine"),
+  "runner releases must wait for machine restart scenarios",
+);
 console.log(
-  "Full projects wait for smoke and run without overlapping shared fixtures.",
+  "Full projects run without overlapping shared fixtures; machine restarts run once, after those fixtures finish.",
 );
