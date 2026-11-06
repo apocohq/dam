@@ -106,7 +106,9 @@ export async function sendPromptWithImage(
     mimeType: "image/png",
     buffer: PNG_2X2_RED,
   });
-  await expect(page.locator('img[alt="attachment"]').first()).toBeVisible({
+  await expect(
+    page.getByRole("img", { name: "diagram.png", exact: true }),
+  ).toBeVisible({
     timeout: 15_000,
   });
   await sendPrompt(page, text);
