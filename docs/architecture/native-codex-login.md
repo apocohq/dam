@@ -20,4 +20,3 @@ The provider being configured is not proof that an agent is signed in or entitle
 Detaching or deleting the Connection removes managed selection, not the native login: the owner logs out on the agent to remove its cached credentials.
 Reauthorizing an expired login, changing accounts or logging out requires an agent restart because existing Codex processes cache their account.
 The OpenAI API-key mode never requires or clears that native login.
-

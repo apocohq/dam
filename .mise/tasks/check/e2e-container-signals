@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+#MISE description="The CI signal probe waits for its default service account and refuses to create a pod when startup times out"
+#MISE sources=[".mise/tasks/e2e/container-signals", ".mise/tasks/check/e2e-container-signals"]
+#MISE outputs=[]
+#MISE cache.enabled=true
+set -euo pipefail
+shellcheck .mise/tasks/e2e/container-signals "$0"
+probe="$PWD/.mise/tasks/e2e/container-signals"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+mkdir -p "$tmp/bin"
+cat > "$tmp/bin/yq" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' 'fixture.invalid/signal-probe:example'
+STUB
+cat > "$tmp/bin/kubectl" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+case " $* " in
+  *' wait --for=create serviceaccount/default --timeout=60s '*)
+    [ "$SIGNAL_TEST_STATE" = ready ] || exit 1
+    touch "$SIGNAL_TEST_DIR/account-ready"
+    ;;
+  *' run '*)
+    [ -f "$SIGNAL_TEST_DIR/account-ready" ] || { echo 'Pod created before its service account was ready' >&2; exit 1; }
+    touch "$SIGNAL_TEST_DIR/pod-created"
+    ;;
+  *' exec '*) touch "$SIGNAL_TEST_DIR/signals-checked" ;;
+  *' wait --for=condition=Ready '*|*' delete pod '*) ;;
+  *) echo 'Unexpected kubectl command in signal fixture' >&2; exit 1 ;;
+esac
+STUB
+chmod +x "$tmp/bin/"*
+export PATH="$tmp/bin:$PATH" GITHUB_ACTIONS=true IS_SANDBOX=1 MISE_CONFIG_ROOT="$PWD"
+export SIGNAL_TEST_DIR="$tmp/ready" SIGNAL_TEST_STATE=ready
+mkdir -p "$SIGNAL_TEST_DIR"
+bash "$probe"
+[ -f "$SIGNAL_TEST_DIR/pod-created" ] && [ -f "$SIGNAL_TEST_DIR/signals-checked" ]
+export SIGNAL_TEST_DIR="$tmp/missing" SIGNAL_TEST_STATE=missing
+mkdir -p "$SIGNAL_TEST_DIR"
+if bash "$probe"; then
+  echo 'A missing service account must fail the signal preflight' >&2
+  exit 1
+fi
+[ ! -e "$SIGNAL_TEST_DIR/pod-created" ] && [ ! -e "$SIGNAL_TEST_DIR/signals-checked" ]
+echo 'Signal preflight waits for admission readiness and still requires its signal checks.'
