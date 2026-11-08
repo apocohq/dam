@@ -1,0 +1,73 @@
+#!/usr/bin/env node
+//MISE description="The pinned OCI bootstrap keeps setup versions aligned and fails closed on verification or architecture errors"
+//MISE sources=[".github/actions/setup-mise/action.yml", ".github/actions/setup-mise/bootstrap-oci.sh", ".mise/tasks/test/mise-bootstrap"]
+//MISE outputs=[]
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, readFileSync, existsSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// TEST_OVERVIEW: Exercise the actual bootstrap script with Docker and checksum adapters. Only accepted verification installs a binary, unsupported architectures do nothing, and stopped extraction containers are removed on both outcomes. Cross-file version checks keep a future tool bump from silently falling back to an older release.
+const root = fileURLToPath(new URL("../../../", import.meta.url));
+const helper = join(root, ".github/actions/setup-mise/bootstrap-oci.sh");
+const script = readFileSync(helper, "utf8");
+const action = readFileSync(join(root, ".github/actions/setup-mise/action.yml"), "utf8");
+const version = script.match(/^mise_version=([0-9.]+)$/m)?.[1];
+assert.ok(version);
+assert.deepEqual([...action.matchAll(/version: "([0-9.]+)"/g)].map((m) => m[1]), [version, version]);
+assert.ok(script.includes(`mise_image=ghcr.io/jdx/mise:${version}@sha256:`));
+assert.match(action, /name: Finish setup with the verified Mise binary/);
+assert.match(action, /sha256: \$\{\{ steps\.mise-oci\.outputs\.sha256 \}\}/);
+
+const scratch = mkdtempSync(join(tmpdir(), "mise-bootstrap-test-"));
+const bin = join(scratch, "bin");
+mkdirSync(bin);
+writeFileSync(join(bin, "docker"), `#!/bin/sh
+case "$1" in
+  create) echo fixture-container ;;
+  cp) printf 'fixture binary, never executed' > "$3" ;;
+  rm) printf 'removed\\n' >> "$BOOTSTRAP_TEST_LOG" ;;
+  *) exit 99 ;;
+esac
+`, { mode: 0o755 });
+writeFileSync(join(bin, "sha256sum"), `#!/bin/sh
+cat > "$BOOTSTRAP_VERIFY_LOG"
+exit "$BOOTSTRAP_VERIFY_RESULT"
+`, { mode: 0o755 });
+
+try {
+  for (const arch of ["X64", "ARM64"]) {
+    for (const verified of [true, false]) {
+      const testRoot = join(scratch, `${arch}-${verified}`);
+      mkdirSync(testRoot);
+      const output = join(testRoot, "output");
+      const log = join(testRoot, "docker.log");
+      const verifyLog = join(testRoot, "verify.log");
+      const result = spawnSync("bash", [helper], {
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_ARCH: arch,
+          RUNNER_TEMP: testRoot, MISE_DATA_DIR: join(testRoot, "mise"), GITHUB_OUTPUT: output,
+          BOOTSTRAP_TEST_LOG: log, BOOTSTRAP_VERIFY_LOG: verifyLog, BOOTSTRAP_VERIFY_RESULT: verified ? "0" : "1" },
+        encoding: "utf8",
+      });
+      assert.equal(result.status, verified ? 0 : 1, result.stderr);
+      assert.equal(readFileSync(log, "utf8"), "removed\n");
+      assert.match(readFileSync(verifyLog, "utf8"), /^[a-f0-9]{64}  /);
+      const installed = join(testRoot, "mise/bin/mise");
+      assert.equal(existsSync(installed), verified);
+      if (verified) {
+        assert.equal(readFileSync(installed, "utf8"), "fixture binary, never executed");
+        assert.ok(statSync(installed).mode & 0o111);
+        assert.equal(readFileSync(join(testRoot, "mise/bin/mise-version"), "utf8").trim(), version);
+        assert.match(readFileSync(output, "utf8"), /^sha256=[a-f0-9]{64}\n$/);
+      } else assert.equal(existsSync(output), false);
+    }
+  }
+  const unsupported = spawnSync("bash", [helper], { env: { ...process.env, RUNNER_ARCH: "unsupported", MISE_DATA_DIR: join(scratch, "unsupported") }, encoding: "utf8" });
+  assert.equal(unsupported.status, 1);
+  assert.equal(existsSync(join(scratch, "unsupported")), false);
+  console.log("mise-bootstrap: verification acceptance, refusal, cleanup, architecture and version pins pass");
+} finally {
+  rmSync(scratch, { recursive: true, force: true });
+}

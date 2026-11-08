@@ -78,7 +78,8 @@ It renders the default profile from the pinned k3s containerd version, preservin
 Ubuntu 26.04 gives exec-spawned processes that label, which the upstream profile does not match ([containerd #12886](https://github.com/containerd/containerd/issues/12886)).
 The denial can leave Postgres recovery waiting for signals until its startup probe kills it.
 The copy is CI-only and is removed when the pinned runtime fixes the bug; a runtime upgrade must compare its template with this copy.
-After a successful background provision, `e2e:container-signals` requires enforced AppArmor and checks signal exchange between init and exec, self-signalling and termination of an exec process's own child on the disposable cluster.
+After a successful background provision, `e2e:container-signals` waits at most 60 seconds for the default service account before creating its probe pod.
+It requires enforced AppArmor and checks signal exchange between init and exec, self-signalling and termination of an exec process's own child on the disposable cluster.
 
 ## Running it
 

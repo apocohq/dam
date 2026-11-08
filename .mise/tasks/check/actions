@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 #MISE description="GitHub Actions workflows and composite actions pass jactionlint"
+#MISE depends=["test:mise-bootstrap"]
 # Offline: the online rules ask GitHub about archived repositories, impostor
 # commits and advisories, and print nothing here. JACTIONLINT_ONLINE=1 turns
 # them on for a run that has a token (it reads GITHUB_TOKEN, GH_TOKEN, then

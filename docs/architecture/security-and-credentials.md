@@ -162,18 +162,9 @@ Cross- owner leakage is structurally prevented by the label selector — a missi
 
 ## Native Codex subscription login
 
-An owner can enable a ChatGPT subscription Connection and grant it to an agent alongside other provider Connections.
-Subscription models use the `chatgpt` provider alias, while API models use `openai`, so replacing Connections cannot silently change a saved model's billing path.
-The Connection configures Codex's native mode and permits its authentication and inference hosts; it stores no subscription token in the platform.
-The owner authorizes the agent over SSH, and Codex stores, refreshes and removes its login in the persistent home.
-Connection inheritance does not authorize a platform sub-agent: its own persistent home needs its own login.
-That login serves terminal, web and channel sessions selecting the subscription's native models.
-The harness and its tools can read the account's tokens, so everyone allowed to run work on the agent uses that subscription; a channel binding lends this account access to the channel too.
-Native requests still leave through the gateway and its network gate, but bypass the Model Router and its provider metering and spend limits.
-The provider being configured is not proof that an agent is signed in or entitled to a particular model.
-Detaching or deleting the Connection removes managed selection, not the native login: the owner logs out on the agent to remove its cached credentials.
-Reauthorizing an expired login, changing accounts or logging out requires an agent restart because existing Codex processes cache their account.
-The OpenAI API-key mode never requires or clears that native login.
+Native Codex subscription credentials live in the agent's persistent home, where its harness and tools can read them.
+Everyone allowed to run work on that agent, including through a channel binding, uses the same subscription.
+The [native Codex login subsystem](native-codex-login.md) owns its provider selection, per-agent status and owner-authorized device flow; Codex owns the account's credential storage and refresh.
 
 ## Credential storage
 

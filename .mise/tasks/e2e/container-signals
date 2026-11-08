@@ -9,6 +9,7 @@ export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 pod=platform-ci-container-signals
 cleanup() { kubectl -n default delete pod "$pod" --ignore-not-found --wait=false >/dev/null; }
 trap cleanup EXIT
+kubectl -n default wait --for=create serviceaccount/default --timeout=60s
 image=$(yq -r '.clickstack.hyperdx.deployment.waitForMongodb.image' "$MISE_CONFIG_ROOT/helm/values.yaml")
 # shellcheck disable=SC2016 # Expanded by the container shell.
 kubectl -n default run "$pod" --restart=Never --image="$image" --override-type=strategic --overrides='{
