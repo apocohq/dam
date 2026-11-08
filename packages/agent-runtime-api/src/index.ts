@@ -352,3 +352,8 @@ export type {
   TabAction,
   TabState,
 } from "./modules/browser/types.js";
+
+export type {
+  NativeLoginService,
+  NativeLoginStatus,
+} from "./modules/native-login/types.js";
