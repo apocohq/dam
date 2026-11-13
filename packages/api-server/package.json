@@ -44,7 +44,7 @@
     "chat": "^4.43.0",
     "cron-parser": "^5.10.2",
     "db": "workspace:*",
-    "hono": "^4.13.14",
+    "hono": "^4.13.16",
     "import-in-the-middle": "^3.5.2",
     "ioredis": "^6.0.0",
     "jose": "^6.2.13",
