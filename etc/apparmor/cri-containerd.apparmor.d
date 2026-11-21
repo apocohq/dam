@@ -10,8 +10,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# CI-only rendering of k3s v1.37.1+k3s1's containerd v2.3.4-k3s1 template:
-# https://github.com/k3s-io/containerd/blob/v2.3.4-k3s1/contrib/apparmor/template.go
+# CI-only rendering of k3s v1.37.2+k3s1's containerd v2.3.7-k3s1 template:
+# https://github.com/k3s-io/containerd/blob/v2.3.7-k3s1/contrib/apparmor/template.go
 # Rootful daemon unconfined, no rootlesskit. All upstream restrictions remain.
 # The added signal peer is the exact stacked label observed on Ubuntu 26.04:
 # https://github.com/containerd/containerd/issues/12886

@@ -43,7 +43,6 @@ jobs:
     with:
       image-prefix: ghcr.io/apocohq/dam
       verify: false
-      queue: false
       fresh: false
       main-push: false
       release: false
@@ -59,7 +58,6 @@ jobs:
     with:
       image-prefix: ghcr.io/apocohq/dam
       verify: false
-      queue: false
       fresh: false
       save-caches: false
       pr-scope: false

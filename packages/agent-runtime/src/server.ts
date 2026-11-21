@@ -6,6 +6,7 @@ import { runOnce } from "./core/run-once.js";
 import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
+import { userInfo } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import headlessPkg from "@xterm/headless";
@@ -40,19 +41,19 @@ import { createFileDocumentStoreBackend } from "./core/document-store.js";
 import { startMemReaper, startRuntimeMetrics } from "./core/mem-reaper.js";
 import { expandHome } from "./core/expand-home.js";
 import { createFilesService } from "./modules/files.js";
-import { RESERVED } from "./modules/workspace-path.js";
 import { composeArtifactApi } from "./modules/artifact-api/compose.js";
 import { composeKbPublish } from "./modules/kb-publish/compose.js";
 import { createImportHandlers, sweepStaging } from "./modules/import/index.js";
-import { createTransferHandlers } from "./modules/transfer/index.js";
 import { composeSkills, resolveGitHubToken } from "./modules/skills/index.js";
 import { createGitCredentialHelperSetup } from "./modules/git/credential-helper.js";
 import { createPodServiceSupervisor } from "./modules/pod-service.js";
 import {
   createModelCatalog,
   selectNativeConnection,
+  modelCatalogCachePath,
   servesHarness,
   VENDORED_PRICE_TABLE,
+  watchHarnessCatalog,
 } from "./modules/model-catalog/index.js";
 import {
   composeModelRouter,
@@ -61,10 +62,21 @@ import {
   bedrockRouterEnv,
   createCallerSessionLookup,
   createModelCallExporter,
+  homeConnectionEnv,
 } from "./modules/model-router/index.js";
 import { composeSsh, createSshUpgrade } from "./modules/ssh.js";
 import { terminalBusy } from "./modules/terminal-busy.js";
+import { terminalDefaultModel } from "./modules/terminal-default-model.js";
 import { terminalReap } from "./modules/terminal-reap.js";
+import {
+  loginShellOf,
+  shellSessionMeta,
+  startsShell,
+  terminalEnvLease,
+  type TerminalLaunch,
+  terminalProgram,
+  type TerminalRequest,
+} from "./modules/terminal-launch.js";
 import { moveTerminalSlot } from "./modules/terminal-slots.js";
 import { composeBrowser } from "./modules/browser-preview.js";
 import { config } from "./modules/config.js";
@@ -196,7 +208,16 @@ const seedRoots = skillRefPaths(
 ).filter((p) => !readSideSet.has(p));
 const pristineSkillPaths = [...seedRoots, STAGED_SKILLS_DIR];
 const stateBackend = createFileDocumentStoreBackend(homeDir);
-const envStore = createEnvStateStore(homeDir, defaultHarness);
+const envStore = createEnvStateStore(
+  homeDir,
+  defaultHarness,
+  (harness, layers) =>
+    homeConnectionEnv({
+      harness,
+      binding: harnessManifests[harness]?.modelRouter,
+      layers,
+    }),
+);
 const browser = composeBrowser({ homeDir, envReader: envStore });
 const setupGitCredentialHelper = createGitCredentialHelperSetup(
   envStore,
@@ -231,6 +252,7 @@ const { service: skillsService, reconciler: imageSkillReconciler } =
     skillPaths: readSidePaths,
     pristineSkillPaths,
     githubToken: () => resolveGitHubToken(envStore.current(), homeDir),
+    spawnEnv: () => mergedSpawnEnv(envStore),
     ...(config.PLATFORM_IMAGE_SKILL_RECONCILE
       ? {
           reconcile: {
@@ -258,12 +280,6 @@ const sshUpgrade = createSshUpgrade({
 const importHandlers = createImportHandlers(homeDir, workDir, (msg) =>
   process.stderr.write(`[import] ${msg}\n`),
 );
-const transferHandlers = createTransferHandlers({
-  root: homeDir,
-  reserved: [...RESERVED],
-  log: (msg) => process.stderr.write(`[transfer] ${msg}\n`),
-});
-
 const artifactTouchReporter = createArtifactTouchReporter({
   client: harnessClient,
   log: (msg) => process.stderr.write(`[artifact-touch] ${msg}\n`),
@@ -294,6 +310,7 @@ const modelCatalog = createModelCatalog({
     Object.entries(harnessManifests).map(([name, m]) => [name, m.modelRouter]),
   ),
   table: VENDORED_PRICE_TABLE,
+  cachePath: modelCatalogCachePath(homeDir),
   log: (msg) => process.stderr.write(`${msg}\n`),
 });
 
@@ -311,6 +328,8 @@ let sessionState: {
   localWork: (sessionId: string) => boolean;
   spawnedBy: (sessionId: string) => string[];
 } = { turnRunning: () => false, localWork: () => false, spawnedBy: () => [] };
+// UNIT_BOUNDARY_DESCRIPTION: runs the platform ended while their prompt still waited behind another turn of its session; such a turn is cancelled as it starts.
+const cancelledRuns = new Set<string>();
 const invocationWatch = createInvocationWatch({
   reporter: {
     report: (input) =>
@@ -350,6 +369,7 @@ const terminalSessionOf = createTerminalSessionLookup(
   TERMINAL_PIN_REFRESH_MS,
 );
 const modelRouter = composeModelRouter({
+  leaseEnv: (harness) => envStore.forLease({ harness, provider: null }),
   sessionModelOf: (sessionId) => {
     const choice = sessionChoiceOf?.(sessionId);
     const subagentModel = choice?.settings?.subagentModel ?? null;
@@ -537,6 +557,7 @@ const {
   sessions: sessionsService,
   sessionChanges,
   activeTurns,
+  undeliveredPrompts,
   subAgentSessions,
   platformMcpEntry,
   warmHistory,
@@ -606,6 +627,16 @@ const {
   agentRequests: toolApprovalReporter,
   onToolActivity: ({ sessionId }) =>
     void gitTraces.drain().then(() => changes.onToolCallSettled(sessionId)),
+  onInvocationTurn: (sessionId, run) => {
+    if (cancelledRuns.delete(run)) {
+      void triggerDriver.cancel(sessionId);
+      return;
+    }
+    const entry = sessionMetadata.get(sessionId);
+    if (entry)
+      sessionMetadata.set(sessionId, { ...entry.meta, invocationRun: run });
+    invocationWatch.watch(sessionId, run);
+  },
   gitTraceEnv: gitTraceEnv(gitTraceDir, sessionEnvVars),
   onTurnOutcome: (sessionId, end) => {
     invocationWatch.turnOutcome(sessionId, end);
@@ -626,7 +657,7 @@ const {
   },
   beforeSpawn: async () => {
     await Promise.race([
-      modelCatalog.listed(),
+      modelCatalog.settled(),
       new Promise<void>((resolve) => {
         setTimeout(resolve, FIRST_LISTING_WAIT_MS).unref();
       }),
@@ -634,6 +665,7 @@ const {
     await runtimeChannel.writeModelWindows();
   },
   providerAliases: grantedAliases,
+  catalog: modelCatalog,
   aliasOfConnection,
   unroutedProviderEnv,
   routerEnv: routerEnvOf,
@@ -697,6 +729,7 @@ function scheduleRecovery(): void {
     void recoverInterruptedTurns({
       store: activeTurns,
       sessionMetadata,
+      undeliveredPrompts,
       triggerDriver,
       bindScheduleSession: (scheduleId, sessionId) =>
         runtimeChannel.triggerStateStore.setSessionForSchedule(
@@ -737,7 +770,26 @@ const runtimeChannel = await composeRuntimeChannel({
   stateBackend,
   harnessClient,
   triggerDriver,
-  invocationWatch,
+  invocationCancel: {
+    cancelRun: async (run) => {
+      if (invocationScripts.stop(run)) return { ended: true };
+      const sessionId = Object.entries(sessionMetadata.all()).find(
+        ([id, entry]) =>
+          entry.meta.invocationRun === run && !sessionMetadata.isTombstoned(id),
+      )?.[0];
+      if (!sessionId) {
+        cancelledRuns.add(run);
+        return { ended: true };
+      }
+      invocationWatch.ended(sessionId);
+      return { ended: await triggerDriver.cancel(sessionId), sessionId };
+    },
+  },
+  invocationSessions: {
+    holds: (sessionId) =>
+      sessionMetadata.get(sessionId) !== undefined &&
+      !sessionMetadata.isTombstoned(sessionId),
+  },
   findSessionByRef: (ref) => sessionMetadata.findByRef(ref),
   recordContinuation: (sessionId, scheduleId) =>
     sessionMetadata.recordContinuation(sessionId, scheduleId),
@@ -756,7 +808,7 @@ const runtimeChannel = await composeRuntimeChannel({
         acpRuntime.applyEnvChange(change);
         podService?.refreshEnv();
         applyStartupItemEnv();
-        void modelCatalog.refresh();
+        void modelCatalog.refreshForEnvChange();
         scheduleRecovery();
       },
     }),
@@ -893,16 +945,26 @@ function markTerminalSeen(sessionId: string): void {
   else sessionMetadata.set(sessionId, { mode: "terminal" });
 }
 
+const grantedModel = (model: string): boolean => {
+  const alias = parseQualifiedModel(model)?.alias;
+  return !alias || grantedAliases().includes(alias);
+};
+
 /**
  * UNIT_BOUNDARY_DESCRIPTION: a model whose provider the agent no longer holds
  * refuses the terminal with the provider-removed reason, as a chat prompt
- * would be refused.
+ * would be refused. A shell asks for no harness and no model, so neither can
+ * refuse it.
  */
 function terminalLease(
   sessionId: string,
-  requested: { harness?: string; model?: string },
-): { harness: string; model: string | null } | string {
+  requested: TerminalRequest,
+): TerminalLaunch | string {
   const meta = sessionMetadata.get(sessionId)?.meta;
+  if (startsShell(meta, requested)) {
+    sessionMetadata.set(sessionId, shellSessionMeta(meta));
+    return { kind: "shell" };
+  }
   const harness = meta?.harness ?? requested.harness ?? defaultHarness;
   if (!Object.hasOwn(harnessManifests, harness))
     return `this agent does not carry the ${harness} harness`;
@@ -911,17 +973,19 @@ function terminalLease(
       ? acpRuntime.sessionChoice(sessionId).model
       : requested.model !== undefined
         ? canonicalModel(requested.model)
-        : null;
-  const alias = chosen ? parseQualifiedModel(chosen)?.alias : undefined;
-  if (alias && !grantedAliases().includes(alias))
-    return PROVIDER_REMOVED_REASON;
+        : terminalDefaultModel({
+            harness,
+            chatDefault: acpRuntime.defaults()?.chat,
+            granted: grantedModel,
+          });
+  if (chosen && !grantedModel(chosen)) return PROVIDER_REMOVED_REASON;
   sessionMetadata.set(sessionId, {
     ...meta,
     mode: "terminal",
     harness,
     ...(chosen !== null && { model: chosen }),
   });
-  return { harness, model: chosen };
+  return { kind: "harness", harness, model: chosen };
 }
 
 /**
@@ -990,11 +1054,7 @@ function reapPtySlotIfIdle(sessionId: string): void {
 function attachPty(
   sessionId: string,
   ws: WsWebSocket,
-  opts: {
-    reset: boolean;
-    lease: { harness?: string; model?: string };
-    action?: string;
-  },
+  opts: { reset: boolean; lease: TerminalRequest; action?: string },
 ): void {
   if (opts.reset) killPtySlot(sessionId);
   let initialized = false;
@@ -1064,12 +1124,14 @@ function attachPty(
       }
       const command =
         opts.action === undefined
-          ? (["/usr/local/bin/harness-terminal", []] as const)
-          : nativeLoginCommand({
-              action: opts.action,
-              harness: lease.harness,
-              chatgptGranted: grantedAliases().includes("chatgpt"),
-            });
+          ? undefined
+          : lease.kind === "harness"
+            ? nativeLoginCommand({
+                action: opts.action,
+                harness: lease.harness,
+                chatgptGranted: grantedAliases().includes("chatgpt"),
+              })
+            : null;
       if (command === null) {
         ws.close(
           1008,
@@ -1086,8 +1148,14 @@ function attachPty(
       const serialize = new SerializeAddon();
       headless.loadAddon(serialize);
       const terminalId = randomUUID();
-      if (opts.action !== "chatgpt-login") browser.start();
-      const pty = nodePty.spawn(command[0], [...command[1]], {
+      if (!command) browser.start();
+      const envLease = terminalEnvLease(lease, defaultHarness);
+      const program = command
+        ? { file: command[0], args: [...command[1]] }
+        : terminalProgram(lease, () =>
+            loginShellOf(() => userInfo().shell, process.env),
+          );
+      const pty = nodePty.spawn(program.file, program.args, {
         name: "xterm-256color",
         cols,
         rows,
@@ -1096,7 +1164,7 @@ function attachPty(
           ...(Object.fromEntries(
             Object.entries(
               leaseSpawnEnv(envStore, {
-                harness: lease.harness,
+                harness: envLease.harness,
                 provider: null,
                 model: null,
               }),
@@ -1107,7 +1175,7 @@ function attachPty(
                 !k.startsWith("npm_lifecycle_"),
             ),
           ) as Record<string, string>),
-          ...(opts.action === "chatgpt-login" ? {} : terminalModelEnv(lease)),
+          ...(command ? {} : terminalModelEnv(envLease)),
           TERM: "xterm-256color",
           COLORTERM: "truecolor",
           ...gitTraceEnv(gitTraceDir, sessionEnvVars),
@@ -1282,25 +1350,6 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (req.method === "POST" && req.url === "/api/transfer/stage") {
-    void transferHandlers.handleStage(req, res);
-    return;
-  }
-
-  if (req.method === "POST" && req.url === "/api/transfer/publish") {
-    void transferHandlers.handlePublish(req, res);
-    return;
-  }
-
-  if (req.method === "GET" && req.url?.startsWith("/api/transfer/read?")) {
-    void transferHandlers.handleRead(
-      req,
-      res,
-      new URL(req.url, "http://agent"),
-    );
-    return;
-  }
-
   if (
     jsonPost(
       req,
@@ -1412,6 +1461,7 @@ server.on("upgrade", (req, socket, head) => {
         provider: leaseParam("provider"),
       }),
       ...(leaseParam("model") !== undefined && { model: leaseParam("model") }),
+      ...(url.searchParams.get("shell") === "1" && { shell: true }),
     };
     termWss.handleUpgrade(req, socket, head, (ws) =>
       attachPty(sessionId, ws, {
@@ -1448,17 +1498,20 @@ server.listen(config.PORT, () => {
     applyStartupItemEnv();
   }
 
-  modelCatalog.onChange(() =>
-    acpRuntime.applyEnvChange({
-      namesChanged: false,
-      base: null,
-      providers: [],
-      harnesses: Object.keys(harnessManifests).map((id) => ({
-        id,
+  watchHarnessCatalog({
+    catalog: modelCatalog,
+    harnesses: Object.keys(harnessManifests),
+    changed: () =>
+      acpRuntime.applyEnvChange({
         namesChanged: false,
-      })),
-    }),
-  );
+        base: null,
+        providers: [],
+        harnesses: Object.keys(harnessManifests).map((id) => ({
+          id,
+          namesChanged: false,
+        })),
+      }),
+  });
   if (environmentOf === "") {
     acpRuntime.prestart();
     void sessionsService.adoptHarnessTitles();

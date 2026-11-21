@@ -30,7 +30,7 @@ components="$(.mise/tasks/image/resolve list-components)"
 for component in $components; do
   source="$(jq -er --arg c "$component" '.[$c]' <<< "$SOURCE_SHAS")"
   tag="$source"
-  case "$component" in controller|ui|api-server) tag="$COMPOSITE" ;; esac
+  case "$component" in controller|api-server) tag="$COMPOSITE" ;; esac
   image="$IMAGE_PREFIX/$component:$tag"
   digest="$(crane digest "$image")"
   images="$(jq -c --arg c "$component" --arg ref "$IMAGE_PREFIX/$component@$digest" '. + {($c): $ref}' <<< "$images")"

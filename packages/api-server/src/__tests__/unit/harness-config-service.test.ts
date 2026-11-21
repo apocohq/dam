@@ -118,6 +118,7 @@ function makeService(opts?: {
         calls.references.push(references ?? {});
       },
       clear: async () => {},
+      writeToolApproval: async () => {},
       grantedProviders: async () => opts?.granted ?? [],
     },
     publishDefaults: async () => {},
