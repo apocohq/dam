@@ -68,6 +68,6 @@ if ! "$root/.mise/tasks/release/apoco" "$version" > case.log 2>&1; then
   exit 1
 fi
 [ -f pushed ]
-jq -e --arg version "$version" '.version == $version and .commit == "feature-sha" and (.images | has("default") and has("api-server") and has("ui"))' dist/apoco-release/release.json > /dev/null
+jq -e --arg version "$version" '.version == $version and .commit == "feature-sha" and (.images | has("default") and has("api-server") and (has("ui") | not))' dist/apoco-release/release.json > /dev/null
 [ "$before" = "$(git hash-object helm/values.yaml)" ]
 echo 'Apoco release: complete candidate recorded; incomplete, existing and unauthorized releases rejected; source chart unchanged.'

@@ -20,7 +20,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { getAccessToken } from "../../../auth.js";
 import { useStore } from "../../../store.js";
 import { useTerminalReconnect } from "../hooks/use-terminal-reconnect.js";
-import { pairMeta } from "../lib/session-pair-options.js";
+import { terminalLaunchMeta } from "../lib/terminal-launch.js";
 import {
   freshPty,
   terminalCloseDrop,
@@ -146,8 +146,8 @@ export function Terminal({
       const token = await getAccessToken();
       if (!current()) return;
 
-      const lease = fresh
-        ? (useStore.getState().nextTerminalPair[agentId] ?? null)
+      const launch = fresh
+        ? (useStore.getState().nextTerminalLaunch[agentId] ?? null)
         : null;
       const wakes = userConnect.current;
       userConnect.current = false;
@@ -162,9 +162,7 @@ export function Terminal({
           wakes,
           lease: nativeLogin
             ? { harness: "codex" }
-            : lease
-              ? pairMeta(lease)
-              : null,
+            : terminalLaunchMeta(launch),
           nativeLogin,
         }),
       );
