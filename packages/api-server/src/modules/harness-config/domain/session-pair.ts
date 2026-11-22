@@ -198,6 +198,7 @@ export function defaultSettingsProblem(
   carried: readonly HarnessCapability[],
   catalog: Pick<OwnerModelCatalogView, "providers"> | null | undefined,
   pair: SessionPair,
+  native: boolean,
 ): string | null {
   const harness = carried.find((h) => h.name === pair.harness);
   const derived = runSubagentSettings(harness, catalog, pair, pair.settings);
@@ -213,10 +214,7 @@ export function defaultSettingsProblem(
         harness?.harnessConfigCatalog,
         derived,
         pair.model,
-        harness?.nativeTemplates?.includes(
-          catalog?.providers.find((p) => p.connectionId === pair.provider)
-            ?.template ?? "",
-        ) ?? false,
+        native,
       ) ??
         platformSubagentSettingsError(
           derived,

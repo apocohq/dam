@@ -364,6 +364,11 @@ export function createHarnessConfigService(deps: {
       carried,
       await deps.ownerCatalog(agentId),
       pair,
+      carried
+        .find((h) => h.name === pair.harness)
+        ?.nativeTemplates?.includes(
+          provider?.templateId ?? provider?.type ?? "",
+        ) ?? false,
     );
     if (invalid) throw new TRPCError({ code: "BAD_REQUEST", message: invalid });
     return withoutPairApproval(
