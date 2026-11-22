@@ -87,7 +87,7 @@ grep -qx 'E2E_HOST_PROVISIONED=1' "$GITHUB_ENV" ||
 
 # A runtime upgrade must revisit the copied AppArmor profile before k3s starts.
 scenario runtime-changed
-sed 's/v1.37.1+k3s1/v1.37.2+k3s1/g' etc/lima/k3s-test.yaml > "$tmp/repo/etc/lima/k3s-test.yaml"
+sed -E 's/(INSTALL_K3S_VERSION=)"[^"]+"/\1"v0.0.0+k3s1"/' etc/lima/k3s-test.yaml > "$tmp/repo/etc/lima/k3s-test.yaml"
 if provision; then
   echo "a changed k3s version must refuse the CI AppArmor profile" >&2
   exit 1

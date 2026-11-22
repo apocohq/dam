@@ -7,7 +7,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const fake = vi.hoisted(() => ({
   navigateToSettings: vi.fn(),
-  navigateToSandboxHome: vi.fn(),
+  openAgentSettings: vi.fn(),
   selectedAgent: "agent-1",
 }));
 
@@ -34,7 +34,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   fake.navigateToSettings.mockClear();
-  fake.navigateToSandboxHome.mockClear();
+  fake.openAgentSettings.mockClear();
 });
 
 function render(rawError: string): void {
@@ -101,9 +101,6 @@ it("renders agent-specific ChatGPT sign-in instructions", () => {
       new MouseEvent("click", { bubbles: true, cancelable: true }),
     ),
   );
-  expect(fake.navigateToSandboxHome).toHaveBeenCalledWith(
-    "agent-1",
-    "providers",
-  );
+  expect(fake.openAgentSettings).toHaveBeenCalledWith("agent-1", "providers");
   expect(fake.navigateToSettings).not.toHaveBeenCalled();
 });

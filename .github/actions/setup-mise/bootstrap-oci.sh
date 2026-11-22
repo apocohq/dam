@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
-mise_version=2026.10.5
-mise_image=ghcr.io/jdx/mise:2026.10.5@sha256:b71dc43c283ed85e04ce73a586bc004bd94ade5099c6011e8fb1c75d8b921663
+mise_version=2026.11.5
+mise_image=ghcr.io/jdx/mise:2026.11.5@sha256:3beda11ba592da44277cac15061103b844c69420a55cb5c41694dc4f2734d0cb
 case ${RUNNER_ARCH:?} in
   X64)
     mise_platform=linux/amd64
-    expected_sha=3e1ed8c0b2741469ca7482b8975fdfbd270bd4c18f3e478fc30cc042a65f63ac
+    expected_sha=bf1d8c76f631318df901450cfadc740fa693c733b29844a1e8b12b278cddb4e3
     ;;
   ARM64)
     mise_platform=linux/arm64
-    expected_sha=8815f6c50f553a5d9813c84af5093f6155d41ef0e7cab39c8b927217bfe65f2e
+    expected_sha=860314b72da022d4bbc661b174bbf51f72ce457eb25e3626035bc590016cc0f9
     ;;
   *) echo 'Unsupported architecture for the pinned Mise OCI bootstrap' >&2; exit 1 ;;
 esac
