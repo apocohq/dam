@@ -14,7 +14,9 @@ const channelInOriginal = "C-E2E-WS-ORIGINAL";
 const unseenChannel = "C-E2E-WS-UNSEEN";
 const strangerSlackUserId = "U-E2E-WS-STRANGER";
 
-const ts = "1700000950.000100";
+const firstMentionTs = "1700000950.000100";
+const rotatedMentionTs = "1700000950.000200";
+const originalMentionTs = "1700000950.000300";
 
 async function outboundFor(api: ApiClient, channel: string) {
   const { records } = await api.e2e.slackReadOutbound.query();
@@ -77,7 +79,7 @@ test("an agent in a second Slack workspace is answered with that workspace's cre
     await api.e2e.slackFireMention.mutate({
       user: strangerSlackUserId,
       channel: channelInSecond,
-      ts,
+      ts: firstMentionTs,
       text: "hello from the second workspace",
       teamId: secondTeamId,
     });
@@ -109,7 +111,7 @@ test("an agent in a second Slack workspace is answered with that workspace's cre
     await api.e2e.slackFireMention.mutate({
       user: strangerSlackUserId,
       channel: channelInSecond,
-      ts,
+      ts: rotatedMentionTs,
       text: "hello after re-authorizing",
       teamId: secondTeamId,
     });
@@ -130,7 +132,7 @@ test("an agent in a second Slack workspace is answered with that workspace's cre
     await api.e2e.slackFireMention.mutate({
       user: strangerSlackUserId,
       channel: channelInOriginal,
-      ts,
+      ts: originalMentionTs,
       text: "hello from the original workspace",
     });
 
