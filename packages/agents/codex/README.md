@@ -68,7 +68,8 @@ Codex's deserializer drops a catalog whose entries carry no `model_messages.inst
 So each entry carries a one-line template, and [`config.toml`](rootfs/etc/codex/config.toml) sets `model_instructions_file` to [`model-instructions.md`](rootfs/etc/codex/model-instructions.md), which wins over any entry's template: Codex's own instructions, copied from the pinned release's bundled `gpt-5.5` entry (`codex-rs/core/models.json`), which a pin bump re-copies.
 That entry opens by telling the model it is "a coding agent based on GPT-5", a claim the router serves to every model, only some of which are OpenAI's: QA saw 3 of 3 DeepSeek sessions on dam-dev answer that they were GPT-5 trained by OpenAI while the chip and Usage said DeepSeek.
 So the file's opening lines are the platform's own, and `check:codex-model-identity` fails if a re-copy brings the GPT-5 claim back.
-[`image.toml`](image.toml) pins codex-acp 2.1.1 and the Codex it bundles.
+[`image.toml`](image.toml) pins Codex 0.171.0 and codex-acp 2.1.1.
+The terminal and the adapter’s app-server launcher use that same Codex executable.
 
 ### Model selection
 

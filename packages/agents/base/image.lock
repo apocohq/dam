@@ -237,6 +237,12 @@ aube = { path = ".mise/locks/npm-ibm-bob/2.1.0", digest = "sha256:1d5d3033c29ef4
 backend = "npm:@ibm/bob"
 specifiers = ["2.1.0"]
 
+[[tools."npm:@openai/codex"]]
+version = "0.171.0"
+aube = { path = ".mise/locks/npm-openai-codex/0.171.0", digest = "sha256:cfb29fff25b77be8ac5f380fbe4ba7cb9f4ef744c525d064f3832f6f8df64ecc" }
+backend = "npm:@openai/codex"
+specifiers = ["0.171.0"]
+
 [[tools."npm:@zhafron/pi-memory"]]
 version = "1.0.2"
 aube = { path = ".mise/locks/npm-zhafron-pi-memory/1.0.2~f60ad0e5", digest = "sha256:0dbbb549242b631b6fafcb2e57e7707f8d5c3405716ca3a723c3ecbc4525080a" }

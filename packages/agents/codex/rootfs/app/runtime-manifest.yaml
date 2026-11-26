@@ -12,7 +12,7 @@ modelRouter:
   dialects: [openai-responses]
   native:
     templates: [openai-chatgpt]
-    models: [gpt-6.1-sol, gpt-6-astra, gpt-6-luna]
+    models: [gpt-6.2-sol, gpt-6.2-astra, gpt-6.1-sol, gpt-6-astra, gpt-6-luna]
   sessionModel: { configOption: model }
   # Codex refuses to list models or start a turn without a key, so the
   # runtime sets the router's placeholder; the router drops it.

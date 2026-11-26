@@ -83,12 +83,20 @@ describe("native Codex subscription sessions", () => {
     });
     expect(
       catalog.view("codex").providers[0]!.models.map((m) => m.name),
-    ).toContain("chatgpt/gpt-6.1-sol");
+    ).toEqual(
+      expect.arrayContaining([
+        "chatgpt/gpt-6.2-astra",
+        "chatgpt/gpt-6.2-sol",
+        "chatgpt/gpt-6.1-sol",
+      ]),
+    );
     expect(catalog.view("pi").providers[0]).toMatchObject({
       status: "unsupported",
       models: [],
     });
     expect(catalog.resolve("chatgpt/gpt-6.1-sol", "codex")).toBeNull();
+    expect(catalog.resolve("chatgpt/gpt-6.2-astra", "codex")).toBeNull();
+    expect(catalog.resolve("chatgpt/gpt-6.2-sol", "codex")).toBeNull();
   });
 
   // TEST_SCENARIO: Selecting a subscription changes only that lease's provider env; another Codex session remains routed without inheriting the native login marker.
