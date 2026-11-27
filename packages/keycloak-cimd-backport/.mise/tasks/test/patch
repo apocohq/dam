@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+#MISE description="The image patch replaces the compiled executor and refuses another Keycloak version"
+#MISE depends=["//packages/keycloak-cimd-backport:build"]
+set -euo pipefail
+
+root="$(mktemp -d)"
+trap 'rm -rf "$root"' EXIT
+home="$root/keycloak"
+mkdir -p "$home/lib/lib/main" "$root/expected" "$root/actual"
+mvn -q -B org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy \
+  -Dartifact=org.keycloak:keycloak-services:26.8.2 -DoutputDirectory="$root"
+services="$home/lib/lib/main/org.keycloak.keycloak-services-26.8.2.jar"
+cp "$root/keycloak-services-26.8.2.jar" "$services"
+mise run --no-deps //packages/keycloak-cimd-backport:apply -- "$home"
+executor=org/keycloak/protocol/oauth2/cimd/clientpolicy/executor
+(
+  cd "$root/expected"
+  jar --extract --file "$MISE_CONFIG_ROOT/target/keycloak-cimd-backport.jar" "$executor"
+)
+(
+  cd "$root/actual"
+  jar --extract --file "$services" "$executor"
+)
+for expected in "$root/expected/$executor/"*.class; do
+  cmp "$expected" "$root/actual/$executor/$(basename "$expected")"
+done
+
+mv "$services" "$home/lib/lib/main/org.keycloak.keycloak-services-27.0.0.jar"
+cp "$home/lib/lib/main/org.keycloak.keycloak-services-27.0.0.jar" "$root/before.jar"
+if mise run --no-deps //packages/keycloak-cimd-backport:apply -- "$home" > "$root/rejection.log" 2>&1; then
+  echo "Unexpectedly patched an unsupported Keycloak version" >&2
+  exit 1
+fi
+grep -q 'CIMD backport requires Keycloak 26.8.2' "$root/rejection.log"
+cmp "$root/before.jar" "$home/lib/lib/main/org.keycloak.keycloak-services-27.0.0.jar"
+mvn -q -B org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy \
+  -Dartifact=org.keycloak:keycloak-services:26.8.0 -DoutputDirectory="$root"
+cp "$root/keycloak-services-26.8.0.jar" "$services"
+if mise run --no-deps //packages/keycloak-cimd-backport:apply -- "$home" > "$root/rejection.log" 2>&1; then
+  echo "Unexpectedly patched an incompatible JAR under the expected filename" >&2
+  exit 1
+fi
+grep -q 'CIMD backport requires the original Keycloak 26.8.2 services JAR' "$root/rejection.log"
+cmp "$root/keycloak-services-26.8.0.jar" "$services"
+echo "CIMD image patch and incompatible-version rejections passed"

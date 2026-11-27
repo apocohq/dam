@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#MISE description="Apply the CIMD backport to an extracted Keycloak 26.8.2 image"
+#MISE depends=["//packages/keycloak-cimd-backport:build"]
+#USAGE arg "<keycloak_home>" help="Extracted /opt/keycloak, before augmentation"
+set -euo pipefail
+
+services="$usage_keycloak_home/lib/lib/main/org.keycloak.keycloak-services-26.8.2.jar"
+if [[ ! -f "$services" ]]; then
+  echo "CIMD backport requires Keycloak 26.8.2; revalidate or remove it before upgrading the base." >&2
+  exit 1
+fi
+expected=8097749be279692d30ee02faca581a49be34298b0b59095a9c65ee3b2314d8ca
+actual="$(sha256sum "$services" | cut -d ' ' -f 1)"
+if [[ "$actual" != "$expected" ]]; then
+  echo "CIMD backport requires the original Keycloak 26.8.2 services JAR; refusing changed or incompatible contents." >&2
+  exit 1
+fi
+classes="$(mktemp -d)"
+trap 'rm -rf "$classes"' EXIT
+(
+  cd "$classes"
+  jar --extract --file "$MISE_CONFIG_ROOT/target/keycloak-cimd-backport.jar" org/keycloak/protocol/oauth2/cimd/clientpolicy/executor
+)
+jar --update --file "$services" -C "$classes" org/keycloak/protocol/oauth2/cimd/clientpolicy/executor
