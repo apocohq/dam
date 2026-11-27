@@ -1,0 +1,12 @@
+[tasks.build]
+description = "Build and test the CIMD backport for Keycloak 26.8.2"
+run = "mvn -q -B package"
+sources = ["src/**/*", "pom.xml"]
+outputs = ["target/keycloak-cimd-backport.jar"]
+
+[tasks.test]
+description = "Test CIMD metadata fetching and the image patch safety gate"
+depends = [":test:*"]
+run = "mvn -q -B test"
+sources = ["src/**/*", "pom.xml"]
+outputs = []

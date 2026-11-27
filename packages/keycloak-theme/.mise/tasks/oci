@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #MISE description="Build the Keycloak image, upstream Keycloak with the theme JAR, the Environments extension and its build options pre-built, to dist/oci/keycloak.tar"
-#MISE sources=["src/**/*", "public/**/*", "!public/keycloakify-dev-resources/**", "vite.config.ts", "package.json", ".mise/tasks/build", ".mise/tasks/oci", "{{config_root}}/../keycloak-environments/src/**/*", "{{config_root}}/../keycloak-environments/pom.xml", "{{config_root}}/../../pnpm-lock.yaml", "{{config_root}}/../../.mise/tasks/image/pack", "{{config_root}}/../../.mise/config.toml"]
+#MISE sources=["src/**/*", "public/**/*", "!public/keycloakify-dev-resources/**", "vite.config.ts", "package.json", ".mise/tasks/build", ".mise/tasks/oci", "{{config_root}}/../keycloak-environments/src/**/*", "{{config_root}}/../keycloak-environments/pom.xml", "{{config_root}}/../keycloak-cimd-backport/src/**/*", "{{config_root}}/../keycloak-cimd-backport/pom.xml", "{{config_root}}/../keycloak-cimd-backport/.mise/**/*", "{{config_root}}/../../pnpm-lock.yaml", "{{config_root}}/../../.mise/tasks/image/pack", "{{config_root}}/../../.mise/config.toml"]
 #MISE outputs=["dist/oci/keycloak.tar"]
 set -euo pipefail
 base="$(mise config get -f "$MISE_CONFIG_ROOT/../../.mise/config.toml" vars.base_image_keycloak)"
@@ -8,7 +8,7 @@ mise run //packages/keycloak-theme:build
 mise run //packages/keycloak-environments:build
 root="$(mktemp -d)"
 trap 'rm -rf "$root"' EXIT
-mkdir "$root/providers" "$root/quarkus"
+mkdir "$root/providers" "$root/quarkus" "$root/services"
 cp dist/jar/keycloak-theme-for-kc-all-other-versions.jar "$root/providers/keycloak-theme.jar"
 cp ../keycloak-environments/target/keycloak-environments.jar "$root/providers/keycloak-environments.jar"
 
@@ -32,10 +32,13 @@ cp -a "$cache/opt/keycloak" "$kc"
 # the one the build saw.
 touch -d @0 "$root/providers/keycloak-theme.jar" "$root/providers/keycloak-environments.jar"
 cp -p "$root/providers/keycloak-theme.jar" "$root/providers/keycloak-environments.jar" "$kc/providers/"
+mise run //packages/keycloak-cimd-backport:apply -- "$kc"
+cp "$kc/lib/lib/main/org.keycloak.keycloak-services-26.8.2.jar" "$root/services/"
 "$kc/bin/kc.sh" build --db=postgres --health-enabled=true --features=token-exchange,admin-fine-grained-authz:v1
 cp "$kc"/lib/quarkus/* "$root/quarkus/"
 chmod 0664 "$root"/quarkus/*
 
 "$MISE_CONFIG_ROOT/../../.mise/tasks/image/pack" "$base" \
   "$root/providers" dist/oci/keycloak.tar platform-keycloak:latest --at /opt/keycloak/providers \
-  --layer "1000:0=/opt/keycloak/lib/quarkus=$root/quarkus"
+  --layer "1000:0=/opt/keycloak/lib/quarkus=$root/quarkus" \
+  --layer "1000:0=/opt/keycloak/lib/lib/main=$root/services"
